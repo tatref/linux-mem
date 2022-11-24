@@ -46,9 +46,9 @@ for proc in glob.glob('/proc/[0-9]*'):
     os.makedirs(dest)
 
     try:
-        for f in ['cmdline', 'smaps', 'status', 'stat']:
+        for f in ['cmdline', 'smaps', 'status', 'stat', 'environ']:
             shutil.copyfile(proc + '/' + f, dest + '/' + f)
-        for f in ["exe"]:
+        for f in ['exe', 'root']:
             try:
                 # try to read exe (kernel procs)
                 os.readlink(f)
