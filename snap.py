@@ -49,6 +49,11 @@ for proc in glob.glob('/proc/[0-9]*'):
         for f in ['cmdline', 'smaps', 'status', 'stat']:
             shutil.copyfile(proc + '/' + f, dest + '/' + f)
         for f in ["exe"]:
+            try:
+                # try to read exe (kernel procs)
+                os.readlink(f)
+            except:
+                continue
             shutil.copyfile(proc + '/' + f, dest + '/' + f, follow_symlinks=False)
     except:
         print('WARNING: Skipping PID ' + pid)
