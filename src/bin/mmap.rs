@@ -1,7 +1,5 @@
 use std::os::{linux::fs::MetadataExt, unix::prelude::AsRawFd};
 
-use libc::FALLOC_FL_UNSHARE_RANGE;
-
 fn wait() {
     println!("press enter");
     let mut input = String::new();
