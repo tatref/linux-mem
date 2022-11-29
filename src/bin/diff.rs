@@ -66,14 +66,27 @@ fn main() {
     let snap2 = Snapshot::load(snap2).unwrap();
 
     let elapsed = chrono.elapsed();
-    dbg!(elapsed);
+    println!("Loaded snapshots in {:?}", elapsed);
+
+    dbg!(snap1.processes.len());
 
     let p1 = snap1
         .processes
         .iter()
-        .filter(|p| p.pid == 9892)
+        .filter(|p| {
+            p.cmdline().expect("can't read cmdline").first()
+                == Some(&"/usr/lib64/firefox/firefox".to_string())
+        })
         .next()
         .unwrap();
+
+    dbg!(p1);
+    dbg!(p1.cmdline(), p1.exe());
+
+        let pagemap = p1.pagemap().unwrap();
+        let 
+
+    return;
     let p2 = snap2
         .processes
         .iter()
@@ -114,7 +127,7 @@ fn main() {
     for k in same {
         let m1 = smaps1.get(k).unwrap();
         let m2 = smaps2.get(k).unwrap();
-        if m1 != m2 {
+        if m1.1.map != m2.1.map {
             println!("0x{:X}", m1.0.address.0);
 
             let stats = m1.1.map.keys();

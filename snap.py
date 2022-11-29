@@ -51,7 +51,7 @@ for proc in glob.glob('/proc/[0-9]*'):
         for f in ['exe', 'root']:
             try:
                 # try to read exe (kernel procs)
-                os.readlink(f)
+                os.readlink(proc + '/' + f)
             except:
                 continue
             shutil.copyfile(proc + '/' + f, dest + '/' + f, follow_symlinks=False)
