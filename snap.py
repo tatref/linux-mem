@@ -61,9 +61,12 @@ def dump_pid_pagemap(pid, dest):
 
         vpn_start = start // PAGE_SIZE
         vpn_end = end // PAGE_SIZE
-
         pages = vpn_end - vpn_start
         offset = vpn_start * ENTRY_SIZE
+
+        fi.seek(offset)
+        fo.seek(offset)
+
         data = fi.read(pages * ENTRY_SIZE)
         fo.write(data)
 
@@ -101,17 +104,49 @@ def dump_kpagecount(iomem):
 
         pfn_start = start // PAGE_SIZE
         pfn_end = end // PAGE_SIZE
+        pages = pfn_end - pfn_start
+        offset = pfn_start * ENTRY_SIZE
 
-        for pfn in range(pfn_start, pfn_end):
-            offset = pfn * ENTRY_SIZE
-            fi.seek(offset)
-            fo.seek(offset)
-            data = fi.read(ENTRY_SIZE)
-            fo.write(data)
-            #val = struct.unpack('=Q', data)[0]
+        fi.seek(offset)
+        fo.seek(offset)
+
+        data = fi.read(pages * ENTRY_SIZE)
+        fo.write(data)
+
+
     fi.close()
     fo.close()
         
+
+def dump_kpageflags(iomem):
+    ENTRY_SIZE = 8
+
+    fi = open('/proc/kpageflags', 'rb')
+    fo = open(OUT_DIR + '/proc/kpageflags', 'wb')
+    for (start, end, name) in iomem:
+        if name != 'System RAM':
+            continue
+
+        pfn_start = start // PAGE_SIZE
+        pfn_end = end // PAGE_SIZE
+        pages = pfn_end - pfn_start
+        offset = pfn_start * ENTRY_SIZE
+
+        fi.seek(offset)
+        fo.seek(offset)
+
+        data = fi.read(pages * ENTRY_SIZE)
+        fo.write(data)
+
+    fi.close()
+    fo.close()
+        
+
+
+############################################
+##                 MAIN                   ##
+############################################
+
 
 
 print('INFO: Collecting...')
@@ -125,6 +160,11 @@ for cmd in ['getconf -a']:
         print('WARNING: command + "' + cmd + '" failed: ' + str(e))
 
 
+print('INFO: Dumping kernel info...')
+iomem = parse_proc_iomem()
+dump_kpagecount(iomem)
+dump_kpageflags(iomem)
+
 
 for f in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'slabinfo', 'sysvipc/shm']:
     try:
@@ -132,6 +172,8 @@ for f in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'slabinfo', 'sysvipc/shm']:
     except:
         print('WARNING: Skipping: /proc/' + f)
 
+
+print('INFO: Dumping processes...')
 for proc in glob.glob('/proc/[0-9]*'):
     pid = proc[6:]
     
