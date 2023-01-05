@@ -201,7 +201,7 @@ for proc in glob.glob('/proc/[0-9]*'):
         shutil.rmtree(dest)
 
 print('INFO: Compressing archive...')
-ret = subprocess.call(shlex.split('tar czf ' + OUT_DIR + '.tar.gz ' + OUT_DIR))
+ret = subprocess.call(shlex.split('tar czf ' + OUT_DIR + '.tar.gz --sparse ' + OUT_DIR))
 if ret != 0:
     print('ERROR: tar failed')
     sys.exit(1)
