@@ -25,7 +25,9 @@ if sys.version_info[0] < 3:
 
 NOW = datetime.datetime.now().replace(microsecond=0).strftime('%Y-%m-%dT%H_%M_%S')
 HOSTNAME = socket.gethostname()
-OUT_DIR = 'memory-snapshot-' + HOSTNAME + '-' + NOW
+
+OUT_DIR = sys.argv[1]
+#OUT_DIR = 'memory-snapshot-' + HOSTNAME + '-' + NOW
 os.makedirs(OUT_DIR)
 os.makedirs(OUT_DIR + '/proc')
 os.makedirs(OUT_DIR + '/proc/sysvipc')
@@ -184,7 +186,7 @@ for proc in glob.glob('/proc/[0-9]*'):
         try:
             dump_pid_pagemap(pid, dest)
         except Exception as e:
-            print("WARNING: failed to dump pagemap for {}", pid)
+            print("WARNING: failed to dump pagemap for {}".format(pid))
             #continue
 
         for f in ['cmdline', 'maps', 'smaps', 'status', 'stat', 'environ']:
