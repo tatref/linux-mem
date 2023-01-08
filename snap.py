@@ -168,7 +168,7 @@ dump_kpagecount(iomem)
 dump_kpageflags(iomem)
 
 
-for f in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm']:
+for f in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm']:
     try:
         shutil.copyfile('/proc/' + f, OUT_DIR + '/proc/' + f)
     except:
