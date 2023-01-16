@@ -19,14 +19,11 @@ import argparse
 import datetime
 import glob
 import os
-import re
 import shlex
 import shutil
-import socket
 import subprocess
 import sys
-import tarfile
-#import struct
+import time
 
 
 PAGE_SIZE = 4096
@@ -231,6 +228,7 @@ block_size = int(subprocess.check_output(shlex.split("stat -fc %s .")))
 data_size = 0
 
 
+start_time = time.perf_counter()
 print('INFO: Collecting...')
 for cmd in ['getconf -a']:
     try:
@@ -302,25 +300,22 @@ for proc_pid in glob.glob('/proc/[0-9]*'):
 
 
 def compress_tar_gz(dump_dir, use_tarfile=False):
-    if use_tarfile:
-        print('INFO: Compressing archive using tarfile...')
-        with tarfile.open(dump_dir + '.tar.gz', mode='w:gz') as tar:
-            for f in glob.glob(dump_dir, recursive=True):
-                tar.add(f)
-    else:
-        print('INFO: Compressing archive using tar...')
-        ret = subprocess.call(shlex.split('tar czf ' + dump_dir + '.tar.gz --sparse ' + dump_dir))
-        if ret != 0:
-            print('ERROR: tar failed')
-            sys.exit(1)
+    print('INFO: Compressing archive using tar...')
+    ret = subprocess.call(shlex.split('tar czf ' + dump_dir + '.tar.gz --sparse ' + dump_dir))
+    if ret != 0:
+        print('ERROR: tar failed')
+        sys.exit(1)
 
-        shutil.rmtree(dump_dir)
-        print('INFO: Done ' + dump_dir + '.tar.gz')
+    shutil.rmtree(dump_dir)
+    print('INFO: Done ' + dump_dir + '.tar.gz')
 
 
 
 if not dry_run:
     compress_tar_gz(dump_dir, use_tarfile=False)
 
+elapsed_time = datetime.timedelta(seconds=time.perf_counter() - start_time)
+
+print('INFO: elapsed time: {}'.format(elapsed_time))
 print('INFO: statistics: data_size: {:.2f} MiB'.format(data_size / 1024 / 1024))
 print('INFO: statistics: estimated disk usage: {:.2f} MiB'.format(data_size * 2 / 1024 / 1024))
