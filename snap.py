@@ -57,14 +57,14 @@ def parse_proc_pid_maps(path):
     return result
 
 
-def dump_pid_pagemap(pid, dest, dry_run=False):
+def dump_pid_pagemap(pid, dest):
     ENTRY_SIZE = 8
 
     data_size = 0
 
     maps = parse_proc_pid_maps('/proc/' + pid + '/maps')
     fi = open('/proc/' + pid + '/pagemap', 'rb')
-    if not dry_run:
+    if mode == 'dump':
         fo = open(dest / 'pagemap', 'wb')
 
     for entry in maps:
@@ -82,12 +82,12 @@ def dump_pid_pagemap(pid, dest, dry_run=False):
         data = fi.read(pages * ENTRY_SIZE)
         data_size += pages * ENTRY_SIZE
 
-        if not dry_run:
+        if mode == 'dump':
             fo.seek(offset)
             fo.write(data)
 
     fi.close()
-    if not dry_run:
+    if mode == 'dump':
         fo.close()
 
     return data_size
@@ -106,13 +106,13 @@ def parse_proc_iomem():
     return result
 
 
-def dump_kpagecount(iomem, dry_run=False):
+def dump_kpagecount(iomem):
     ENTRY_SIZE = 8
 
     data_size = 0
 
     fi = open('/proc/kpagecount', 'rb')
-    if not dry_run:
+    if mode == 'dump':
         fo = open(dump_dir / 'proc/kpagecount', 'wb')
     for (start, end, name) in iomem:
         if name != 'System RAM':
@@ -127,24 +127,24 @@ def dump_kpagecount(iomem, dry_run=False):
         data = fi.read(pages * ENTRY_SIZE)
         data_size += pages * ENTRY_SIZE
 
-        if not dry_run:
+        if mode == 'dump':
             fo.seek(offset)
             fo.write(data)
 
     fi.close()
-    if not dry_run:
+    if mode == 'dump':
         fo.close()
 
     return data_size
         
 
-def dump_kpageflags(iomem, dry_run=False):
+def dump_kpageflags(iomem):
     ENTRY_SIZE = 8
 
     data_size = 0
 
     fi = open('/proc/kpageflags', 'rb')
-    if not dry_run:
+    if mode == 'dump':
         fo = open(dump_dir / 'proc/kpageflags', 'wb')
     for (start, end, name) in iomem:
         if name != 'System RAM':
@@ -160,12 +160,12 @@ def dump_kpageflags(iomem, dry_run=False):
         data = fi.read(pages * ENTRY_SIZE)
         data_size += pages * ENTRY_SIZE
 
-        if not dry_run:
+        if mode == 'dump':
             fo.seek(offset)
             fo.write(data)
 
     fi.close()
-    if not dry_run:
+    if mode == 'dump':
         fo.close()
 
     return data_size
@@ -175,27 +175,28 @@ def handle_proc_pid(proc_pid):
     data_size = 0
     pid = proc_pid[6:]
     
-    dest = dump_dir / 'proc/' / pid
-    if not dry_run:
+    if mode == 'dump':
+        dest = dump_dir / 'proc/' / pid
         os.makedirs(dest)
+    else:
+        dest = None
+
 
     try:
         try:
-            data_size += dump_pid_pagemap(pid, dest, dry_run=dry_run)
+            data_size += dump_pid_pagemap(pid, dest)
         except Exception as e:
-            print("WARNING: failed to dump pagemap for {}".format(pid))
-            if verbose:
-                print(e)
-            #continue
+            logging.warning("Failed to dump pagemap for {}".format(pid))
+            logging.debug(e)
 
         # handle files
         for proc_file in ['cmdline', 'maps', 'smaps', 'status', 'stat', 'environ']:
-            if dry_run:
-                with open(proc_pid + '/' + proc_file, 'rb') as f:
-                    file_size = len(f.read())
-            else:
+            if mode == 'dump':
                 shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file)
                 file_size = os.stat(dest / proc_file).st_size
+            else:
+                with open(proc_pid + '/' + proc_file, 'rb') as f:
+                    file_size = len(f.read())
 
             disk_usage = (file_size // block_size) + 1 * block_size
             data_size += disk_usage
@@ -207,11 +208,11 @@ def handle_proc_pid(proc_pid):
                 os.readlink(proc_pid + '/' + proc_file)
             except:
                 continue
-            if not dry_run:
+            if mode == 'dump':
                 shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file, follow_symlinks=False)
     except Exception as e:
         print('WARNING: Skipping PID ' + pid + ': ' + str(e))
-        if not dry_run:
+        if mode == 'dump':
             shutil.rmtree(dest)
 
     return data_size
@@ -221,7 +222,7 @@ def test_seek_hole(dump_dir):
     test_file_name = dump_dir.parent / 'test_seek'
     try:
         os.stat(test_file_name)
-        print('ERROR: test file already exists: "{}"'.format(test_file_name))
+        logging.critical('Test file already exists: "{}"'.format(test_file_name))
         sys.exit(1)
     except Exception as e:
         # no file
@@ -273,13 +274,18 @@ if not check_tar_version():
 
 
 parser = argparse.ArgumentParser(description="Linux memory snapshot")
-parser.add_argument('dump_dir', help="Path to create the archive. `.tar.gz` is appended.")
-parser.add_argument('--dry_run', action='store_true', help="Don't create archive, only output statistics.")
-parser.add_argument('--verbose', action='store_true', help="Verbose")
-
+parser.add_argument('--verbose', '-v', action='store_true', help="Verbose")
+subparsers = parser.add_subparsers(help='Mode of operation', dest='mode')
+parser_dump = subparsers.add_parser('dump', help="Generate a dump")
+parser_dump = parser_dump.add_argument('dump_dir', help="Path to create the archive. `.tar.gz` is appended.")
+parser_test = subparsers.add_parser('test', help="Dry run. Provide statistics")
 args = parser.parse_args()
-dry_run = args.dry_run
-dump_dir = Path(args.dump_dir)
+
+mode = args.mode
+if mode == 'dump':
+    dump_dir = Path(args.dump_dir)
+else:
+    dump_dir = None
 verbose = args.verbose
 
 
@@ -287,24 +293,25 @@ if verbose:
     loglevel = logging.DEBUG
 else:
     loglevel = logging.INFO
-logging.basicConfig(encoding='utf-8', level=loglevel, format='%(asctime)s %(levelname)s: %(message)s', datefmt='%I:%M:%S')
+logging.basicConfig(encoding='utf-8', level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%I:%M:%S')
 
 
-logging.info('Tmp path = %s', dump_dir.absolute())
-logging.info('Dump archive = %s.tar.gz', dump_dir.absolute().with_suffix('.tar.gz'))
+if mode == 'dump':
+    logging.info('Tmp path = %s', dump_dir.absolute())
+    logging.info('Dump archive = %s.tar.gz', dump_dir.absolute().with_suffix('.tar.gz'))
 
 if os.geteuid() != 0:
     logging.critical('Run as root / sudo')
     sys.exit(1)
 
-if not test_seek_hole(dump_dir):
+if mode == 'dump' and not test_seek_hole(dump_dir):
     logging.critical('Mount point does not support SEEK_HOLE')
     sys.exit(1)
 
-if dry_run:
-    logging.info('dry_run')
+if mode == 'test':
+    logging.info('Test mode: no file will be generated')
 
-if not dry_run:
+if mode == 'dump':
     os.makedirs(dump_dir)
     os.makedirs(dump_dir / 'proc')
     os.makedirs(dump_dir / 'proc/sysvipc')
@@ -320,7 +327,7 @@ logging.info('Collecting...')
 for cmd in ['getconf -a']:
     try:
         out = subprocess.check_output(shlex.split(cmd))
-        if not dry_run:
+        if mode == 'dump':
             proc_file = open(dump_dir / cmd.replace(' ', '_'), 'w')
             proc_file.write(str(out))
             proc_file.close()
@@ -330,13 +337,13 @@ for cmd in ['getconf -a']:
 
 logging.info('Dumping kernel info...')
 iomem = parse_proc_iomem()
-data_size += dump_kpagecount(iomem, dry_run=dry_run)
-data_size += dump_kpageflags(iomem, dry_run=dry_run)
+data_size += dump_kpagecount(iomem)
+data_size += dump_kpageflags(iomem)
 
 
 for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm']:
     try:
-        if not dry_run:
+        if mode == 'dump':
             shutil.copyfile('/proc/' + proc_file, dump_dir / 'proc' / proc_file)
     except:
         logging.warning('Skipping: /proc/' + proc_file)
@@ -363,7 +370,7 @@ def compress_tar_gz(dump_dir):
 
 
 
-if not dry_run:
+if mode == 'dump':
     compress_tar_gz(dump_dir)
 
 elapsed_time = datetime.timedelta(seconds=time.perf_counter() - start_time)
