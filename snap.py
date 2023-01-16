@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 
 PAGE_SIZE = 4096
@@ -63,7 +64,7 @@ def dump_pid_pagemap(pid, dest, dry_run=False):
     maps = parse_proc_pid_maps('/proc/' + pid + '/maps')
     fi = open('/proc/' + pid + '/pagemap', 'rb')
     if not dry_run:
-        fo = open(dest + '/pagemap', 'wb')
+        fo = open(dest / 'pagemap', 'wb')
 
     for entry in maps:
         start, end, path = entry
@@ -111,7 +112,7 @@ def dump_kpagecount(iomem, dry_run=False):
 
     fi = open('/proc/kpagecount', 'rb')
     if not dry_run:
-        fo = open(dump_dir + '/proc/kpagecount', 'wb')
+        fo = open(dump_dir / 'proc/kpagecount', 'wb')
     for (start, end, name) in iomem:
         if name != 'System RAM':
             continue
@@ -143,7 +144,7 @@ def dump_kpageflags(iomem, dry_run=False):
 
     fi = open('/proc/kpageflags', 'rb')
     if not dry_run:
-        fo = open(dump_dir + '/proc/kpageflags', 'wb')
+        fo = open(dump_dir / 'proc/kpageflags', 'wb')
     for (start, end, name) in iomem:
         if name != 'System RAM':
             continue
@@ -169,6 +170,77 @@ def dump_kpageflags(iomem, dry_run=False):
     return data_size
         
 
+def handle_proc_pid(proc_pid):
+    data_size = 0
+    pid = proc_pid[6:]
+    
+    dest = dump_dir / 'proc/' / pid
+    if not dry_run:
+        os.makedirs(dest)
+
+    try:
+        try:
+            data_size += dump_pid_pagemap(pid, dest, dry_run=dry_run)
+        except Exception as e:
+            print("WARNING: failed to dump pagemap for {}".format(pid))
+            if verbose:
+                print(e)
+            #continue
+
+        # handle files
+        for proc_file in ['cmdline', 'maps', 'smaps', 'status', 'stat', 'environ']:
+            if dry_run:
+                with open(proc_pid + '/' + proc_file, 'rb') as f:
+                    file_size = len(f.read())
+            else:
+                shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file)
+                file_size = os.stat(dest / proc_file).st_size
+
+            disk_usage = (file_size // block_size) + 1 * block_size
+            data_size += disk_usage
+
+        # handle links
+        for proc_file in ['exe', 'root']:
+            try:
+                # try to read exe (kernel procs)
+                os.readlink(proc_pid + '/' + proc_file)
+            except:
+                continue
+            if not dry_run:
+                shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file, follow_symlinks=False)
+    except Exception as e:
+        print('WARNING: Skipping PID ' + pid + ': ' + str(e))
+        if not dry_run:
+            shutil.rmtree(dest)
+
+    return data_size
+
+
+def test_seek_hole(dump_dir):
+    test_file_name = dump_dir.parent / 'test_seek'
+    try:
+        os.stat(test_file_name)
+        print('ERROR: test file already exists: "{}"'.format(test_file_name))
+        sys.exit(1)
+    except Exception as e:
+        # no file
+        pass
+
+    seek_offset = 1024 * 1024
+
+    f = open(test_file_name, 'xb')
+    f.seek(seek_offset)
+    f.write(b'hello')
+    f.seek(0)
+    data_offset = f.seek(0, os.SEEK_DATA)
+    f.close()
+
+    os.remove(test_file_name)
+
+    if data_offset != seek_offset:
+        return False
+    else:
+        return True
 
 ############################################
 ##                 MAIN                   ##
@@ -194,33 +266,33 @@ if not check_tar_version():
 #    print('ERROR: kernel is too old')
 #    sys.exit(1)
 
-if os.geteuid() != 0:
-    print('ERROR: run as root / sudo')
-    sys.exit(1)
-
 
 parser = argparse.ArgumentParser(description="Linux memory snapshot")
 parser.add_argument('dump_dir', help="Path to create the archive. `.tar.gz` is appended.")
 parser.add_argument('--dry_run', action='store_true', help="Don't create archive, only output statistics.")
 parser.add_argument('--verbose', action='store_true', help="Verbose")
 
-
-
 args = parser.parse_args()
-print(args)
-
 dry_run = args.dry_run
-dump_dir = args.dump_dir
+dump_dir = Path(args.dump_dir)
 verbose = args.verbose
 
+
+if os.geteuid() != 0:
+    print('ERROR: run as root / sudo')
+    sys.exit(1)
+
+if not test_seek_hole(dump_dir):
+    print('ERROR: mount point does not support SEEK_HOLE')
+    sys.exit(1)
 
 if dry_run:
     print('INFO: dry_run')
 
 if not dry_run:
     os.makedirs(dump_dir)
-    os.makedirs(dump_dir + '/proc')
-    os.makedirs(dump_dir + '/proc/sysvipc')
+    os.makedirs(dump_dir / 'proc')
+    os.makedirs(dump_dir / 'proc/sysvipc')
 
 
 
@@ -234,7 +306,7 @@ for cmd in ['getconf -a']:
     try:
         out = subprocess.check_output(shlex.split(cmd))
         if not dry_run:
-            proc_file = open(dump_dir + '/' + cmd.replace(' ', '_'), 'w')
+            proc_file = open(dump_dir / cmd.replace(' ', '_'), 'w')
             proc_file.write(str(out))
             proc_file.close()
     except Exception as e:
@@ -250,69 +322,34 @@ data_size += dump_kpageflags(iomem, dry_run=dry_run)
 for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm']:
     try:
         if not dry_run:
-            shutil.copyfile('/proc/' + proc_file, dump_dir + '/proc/' + proc_file)
+            shutil.copyfile('/proc/' + proc_file, dump_dir / 'proc' / proc_file)
     except:
         print('WARNING: Skipping: /proc/' + proc_file)
 
 
 print('INFO: Dumping processes...')
-for proc_pid in glob.glob('/proc/[0-9]*'):
-    pid = proc_pid[6:]
-    
-    dest = dump_dir + '/proc/' + pid
-    if not dry_run:
-        os.makedirs(dest)
-
-    try:
-        try:
-            data_size += dump_pid_pagemap(pid, dest, dry_run=dry_run)
-        except Exception as e:
-            print("WARNING: failed to dump pagemap for {}".format(pid))
-            if verbose:
-                print(e)
-            #continue
-
-        # handle files
-        for proc_file in ['cmdline', 'maps', 'smaps', 'status', 'stat', 'environ']:
-            if dry_run:
-                with open(proc_pid + '/' + proc_file, 'rb') as f:
-                    file_size = len(f.read())
-            else:
-                shutil.copyfile(proc_pid + '/' + proc_file, dest + '/' + proc_file)
-                file_size = os.stat(dest + '/' + proc_file).st_size
-
-            disk_usage = (file_size // block_size) + 1 * block_size
-            data_size += disk_usage
-
-        # handle links
-        for proc_file in ['exe', 'root']:
-            try:
-                # try to read exe (kernel procs)
-                os.readlink(proc_pid + '/' + proc_file)
-            except:
-                continue
-            if not dry_run:
-                shutil.copyfile(proc_pid + '/' + proc_file, dest + '/' + proc_file, follow_symlinks=False)
-    except Exception as e:
-        print('WARNING: Skipping PID ' + pid + ': ' + str(e))
-        if not dry_run:
-            shutil.rmtree(dest)
+proc_pids = glob.glob('/proc/[0-9]*')
 
 
-def compress_tar_gz(dump_dir, use_tarfile=False):
+for proc_pid in proc_pids:
+    data_size += handle_proc_pid(proc_pid)
+
+
+def compress_tar_gz(dump_dir):
     print('INFO: Compressing archive using tar...')
-    ret = subprocess.call(shlex.split('tar czf ' + dump_dir + '.tar.gz --sparse ' + dump_dir))
+    arc = dump_dir.with_suffix('.tar.gz').as_posix()
+    ret = subprocess.call(shlex.split('tar czf ' + arc + ' --sparse ' + dump_dir.as_posix()))
     if ret != 0:
         print('ERROR: tar failed')
         sys.exit(1)
 
     shutil.rmtree(dump_dir)
-    print('INFO: Done ' + dump_dir + '.tar.gz')
+    print('INFO: Done ' + arc + '.tar.gz')
 
 
 
 if not dry_run:
-    compress_tar_gz(dump_dir, use_tarfile=False)
+    compress_tar_gz(dump_dir)
 
 elapsed_time = datetime.timedelta(seconds=time.perf_counter() - start_time)
 
