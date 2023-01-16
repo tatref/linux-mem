@@ -1,36 +1,46 @@
 #!/usr/bin/env python
+#
+# Tested kernels:
+# - 5.15 (UEK7)
+#
+#
+# Not yet tested:
+# - 5.4 (UEK6)
+# - 4.14 (UEK5)
+# - 4.1 (UEK4)
+# - 3.8 (UEK3)
+# - 2.6.39 (UEKR2)
+#
+# See https://blogs.oracle.com/scoter/post/oracle-linux-and-unbreakable-enterprise-kernel-uek-releases
+#
 
-import glob
-import shutil
-import os
+
+import argparse
 import datetime
-import subprocess
+import glob
+import os
+import re
 import shlex
+import shutil
 import socket
+import subprocess
 import sys
+import tarfile
 #import struct
 
 
 PAGE_SIZE = 4096
 
-if os.getuid() != 0:
-    print('ERROR: run as root to collect all processes and physical memory')
-    sys.exit(1)
-
-if sys.version_info[0] < 3:
-    print('ERROR: Requires Python 3')
-    sys.exit(1)
 
 
 
-NOW = datetime.datetime.now().replace(microsecond=0).strftime('%Y-%m-%dT%H_%M_%S')
-HOSTNAME = socket.gethostname()
-
-OUT_DIR = sys.argv[1]
-#OUT_DIR = 'memory-snapshot-' + HOSTNAME + '-' + NOW
-os.makedirs(OUT_DIR)
-os.makedirs(OUT_DIR + '/proc')
-os.makedirs(OUT_DIR + '/proc/sysvipc')
+def check_tar_version():
+    output = subprocess.check_output(shlex.split("tar --version")).splitlines()[0]
+    version = output.split(b' ')[-1]
+    version = tuple(int(x) for x in version.split(b'.'))
+    if version < (1, 29):
+        return False
+    return True
 
 
 def parse_proc_pid_maps(path):
@@ -40,25 +50,28 @@ def parse_proc_pid_maps(path):
     for line in maps:
         split = line.split(' ')
         address = split[0]
-        cmd = split[-1]
+        path = split[-1]
         start = int(address.split('-')[0], 16)
         end = int(address.split('-')[1], 16)
-        result.append((start, end, cmd))
+        result.append((start, end, path))
     f.close()
     return result
 
 
-def dump_pid_pagemap(pid, dest):
+def dump_pid_pagemap(pid, dest, dry_run=False):
     ENTRY_SIZE = 8
+
+    data_size = 0
 
     maps = parse_proc_pid_maps('/proc/' + pid + '/maps')
     fi = open('/proc/' + pid + '/pagemap', 'rb')
-    fo = open(dest + '/pagemap', 'wb')
+    if not dry_run:
+        fo = open(dest + '/pagemap', 'wb')
 
     for entry in maps:
-        start, end, cmd = entry
+        start, end, path = entry
 
-        if cmd == '[vsyscall]':
+        if path == '[vsyscall]':
             pass
 
         vpn_start = start // PAGE_SIZE
@@ -67,20 +80,19 @@ def dump_pid_pagemap(pid, dest):
         offset = vpn_start * ENTRY_SIZE
 
         fi.seek(offset)
-        fo.seek(offset)
-
         data = fi.read(pages * ENTRY_SIZE)
-        fo.write(data)
+        data_size += pages * ENTRY_SIZE
 
-        #for vp in range(vpn_start, vpn_end):
-        #    offset = vp * ENTRY_SIZE
-        #    fi.seek(offset)
-        #    fo.seek(offset)
-        #    data = fi.read(ENTRY_SIZE)
-        #    fo.write(data)
+        if not dry_run:
+            fo.seek(offset)
+            fo.write(data)
 
-    fo.close()
     fi.close()
+    if not dry_run:
+        fo.close()
+
+    return data_size
+
 
 def parse_proc_iomem():
     result = []
@@ -95,11 +107,14 @@ def parse_proc_iomem():
     return result
 
 
-def dump_kpagecount(iomem):
+def dump_kpagecount(iomem, dry_run=False):
     ENTRY_SIZE = 8
+
+    data_size = 0
 
     fi = open('/proc/kpagecount', 'rb')
-    fo = open(OUT_DIR + '/proc/kpagecount', 'wb')
+    if not dry_run:
+        fo = open(dump_dir + '/proc/kpagecount', 'wb')
     for (start, end, name) in iomem:
         if name != 'System RAM':
             continue
@@ -110,21 +125,28 @@ def dump_kpagecount(iomem):
         offset = pfn_start * ENTRY_SIZE
 
         fi.seek(offset)
-        fo.seek(offset)
-
         data = fi.read(pages * ENTRY_SIZE)
-        fo.write(data)
+        data_size += pages * ENTRY_SIZE
 
+        if not dry_run:
+            fo.seek(offset)
+            fo.write(data)
 
     fi.close()
-    fo.close()
+    if not dry_run:
+        fo.close()
+
+    return data_size
         
 
-def dump_kpageflags(iomem):
+def dump_kpageflags(iomem, dry_run=False):
     ENTRY_SIZE = 8
 
+    data_size = 0
+
     fi = open('/proc/kpageflags', 'rb')
-    fo = open(OUT_DIR + '/proc/kpageflags', 'wb')
+    if not dry_run:
+        fo = open(dump_dir + '/proc/kpageflags', 'wb')
     for (start, end, name) in iomem:
         if name != 'System RAM':
             continue
@@ -134,14 +156,20 @@ def dump_kpageflags(iomem):
         pages = pfn_end - pfn_start
         offset = pfn_start * ENTRY_SIZE
 
-        fi.seek(offset)
-        fo.seek(offset)
 
+        fi.seek(offset)
         data = fi.read(pages * ENTRY_SIZE)
-        fo.write(data)
+        data_size += pages * ENTRY_SIZE
+
+        if not dry_run:
+            fo.seek(offset)
+            fo.write(data)
 
     fi.close()
-    fo.close()
+    if not dry_run:
+        fo.close()
+
+    return data_size
         
 
 
@@ -149,64 +177,150 @@ def dump_kpageflags(iomem):
 ##                 MAIN                   ##
 ############################################
 
+if sys.version_info[0] < 3:
+    print('ERROR: Requires Python 3')
+    sys.exit(1)
+
+if os.uname().sysname != 'Linux':
+    print('ERROR: Linux only')
+    sys.exit(1)
+
+if not check_tar_version():
+    print('ERROR: require tar >= 1.29 to compress archive')
+    sys.exit(1)
+
+
+#kernel = os.uname().release
+#kernel_version = tuple(int(x) for x in kernel.split('-')[0].split('.'))
+#print(kernel_version)
+#if kernel_version < (1, 2, 3):
+#    print('ERROR: kernel is too old')
+#    sys.exit(1)
+
+if os.geteuid() != 0:
+    print('ERROR: run as root / sudo')
+    sys.exit(1)
+
+
+parser = argparse.ArgumentParser(description="Linux memory snapshot")
+parser.add_argument('dump_dir', help="Path to create the archive. `.tar.gz` is appended.")
+parser.add_argument('--dry_run', action='store_true', help="Don't create archive, only output statistics.")
+parser.add_argument('--verbose', action='store_true', help="Verbose")
+
+
+
+args = parser.parse_args()
+print(args)
+
+dry_run = args.dry_run
+dump_dir = args.dump_dir
+verbose = args.verbose
+
+
+if dry_run:
+    print('INFO: dry_run')
+
+if not dry_run:
+    os.makedirs(dump_dir)
+    os.makedirs(dump_dir + '/proc')
+    os.makedirs(dump_dir + '/proc/sysvipc')
+
+
+
+block_size = int(subprocess.check_output(shlex.split("stat -fc %s .")))
+data_size = 0
 
 
 print('INFO: Collecting...')
 for cmd in ['getconf -a']:
     try:
         out = subprocess.check_output(shlex.split(cmd))
-        f = open(OUT_DIR + '/' + cmd.replace(' ', '_'), 'w')
-        f.write(str(out))
-        f.close()
+        if not dry_run:
+            proc_file = open(dump_dir + '/' + cmd.replace(' ', '_'), 'w')
+            proc_file.write(str(out))
+            proc_file.close()
     except Exception as e:
         print('WARNING: command + "' + cmd + '" failed: ' + str(e))
 
 
 print('INFO: Dumping kernel info...')
 iomem = parse_proc_iomem()
-dump_kpagecount(iomem)
-dump_kpageflags(iomem)
+data_size += dump_kpagecount(iomem, dry_run=dry_run)
+data_size += dump_kpageflags(iomem, dry_run=dry_run)
 
 
-for f in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm']:
+for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm']:
     try:
-        shutil.copyfile('/proc/' + f, OUT_DIR + '/proc/' + f)
+        if not dry_run:
+            shutil.copyfile('/proc/' + proc_file, dump_dir + '/proc/' + proc_file)
     except:
-        print('WARNING: Skipping: /proc/' + f)
+        print('WARNING: Skipping: /proc/' + proc_file)
 
 
 print('INFO: Dumping processes...')
-for proc in glob.glob('/proc/[0-9]*'):
-    pid = proc[6:]
+for proc_pid in glob.glob('/proc/[0-9]*'):
+    pid = proc_pid[6:]
     
-    dest = OUT_DIR + '/proc/' + pid
-    os.makedirs(dest)
+    dest = dump_dir + '/proc/' + pid
+    if not dry_run:
+        os.makedirs(dest)
 
     try:
         try:
-            dump_pid_pagemap(pid, dest)
+            data_size += dump_pid_pagemap(pid, dest, dry_run=dry_run)
         except Exception as e:
             print("WARNING: failed to dump pagemap for {}".format(pid))
+            if verbose:
+                print(e)
             #continue
 
-        for f in ['cmdline', 'maps', 'smaps', 'status', 'stat', 'environ']:
-            shutil.copyfile(proc + '/' + f, dest + '/' + f)
-        for f in ['exe', 'root']:
+        # handle files
+        for proc_file in ['cmdline', 'maps', 'smaps', 'status', 'stat', 'environ']:
+            if dry_run:
+                with open(proc_pid + '/' + proc_file, 'rb') as f:
+                    file_size = len(f.read())
+            else:
+                shutil.copyfile(proc_pid + '/' + proc_file, dest + '/' + proc_file)
+                file_size = os.stat(dest + '/' + proc_file).st_size
+
+            disk_usage = (file_size // block_size) + 1 * block_size
+            data_size += disk_usage
+
+        # handle links
+        for proc_file in ['exe', 'root']:
             try:
                 # try to read exe (kernel procs)
-                os.readlink(proc + '/' + f)
+                os.readlink(proc_pid + '/' + proc_file)
             except:
                 continue
-            shutil.copyfile(proc + '/' + f, dest + '/' + f, follow_symlinks=False)
+            if not dry_run:
+                shutil.copyfile(proc_pid + '/' + proc_file, dest + '/' + proc_file, follow_symlinks=False)
     except Exception as e:
         print('WARNING: Skipping PID ' + pid + ': ' + str(e))
-        shutil.rmtree(dest)
+        if not dry_run:
+            shutil.rmtree(dest)
 
-print('INFO: Compressing archive...')
-ret = subprocess.call(shlex.split('tar czf ' + OUT_DIR + '.tar.gz --sparse ' + OUT_DIR))
-if ret != 0:
-    print('ERROR: tar failed')
-    sys.exit(1)
 
-shutil.rmtree(OUT_DIR)
-print('INFO: Done ' + OUT_DIR + '.tar.gz')
+def compress_tar_gz(dump_dir, use_tarfile=False):
+    if use_tarfile:
+        print('INFO: Compressing archive using tarfile...')
+        with tarfile.open(dump_dir + '.tar.gz', mode='w:gz') as tar:
+            for f in glob.glob(dump_dir, recursive=True):
+                tar.add(f)
+    else:
+        print('INFO: Compressing archive using tar...')
+        ret = subprocess.call(shlex.split('tar czf ' + dump_dir + '.tar.gz --sparse ' + dump_dir))
+        if ret != 0:
+            print('ERROR: tar failed')
+            sys.exit(1)
+
+        shutil.rmtree(dump_dir)
+        print('INFO: Done ' + dump_dir + '.tar.gz')
+
+
+
+if not dry_run:
+    compress_tar_gz(dump_dir, use_tarfile=False)
+
+print('INFO: statistics: data_size: {:.2f} MiB'.format(data_size / 1024 / 1024))
+print('INFO: statistics: estimated disk usage: {:.2f} MiB'.format(data_size * 2 / 1024 / 1024))
