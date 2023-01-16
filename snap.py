@@ -15,16 +15,17 @@
 #
 
 
+from pathlib import Path
 import argparse
 import datetime
 import glob
+import logging
 import os
 import shlex
 import shutil
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 
 PAGE_SIZE = 4096
@@ -242,6 +243,10 @@ def test_seek_hole(dump_dir):
     else:
         return True
 
+
+
+
+
 ############################################
 ##                 MAIN                   ##
 ############################################
@@ -278,16 +283,26 @@ dump_dir = Path(args.dump_dir)
 verbose = args.verbose
 
 
+if verbose:
+    loglevel = logging.DEBUG
+else:
+    loglevel = logging.INFO
+logging.basicConfig(encoding='utf-8', level=loglevel, format='%(asctime)s %(levelname)s: %(message)s', datefmt='%I:%M:%S')
+
+
+logging.info('Tmp path = %s', dump_dir.absolute())
+logging.info('Dump archive = %s.tar.gz', dump_dir.absolute().with_suffix('.tar.gz'))
+
 if os.geteuid() != 0:
-    print('ERROR: run as root / sudo')
+    logging.critical('Run as root / sudo')
     sys.exit(1)
 
 if not test_seek_hole(dump_dir):
-    print('ERROR: mount point does not support SEEK_HOLE')
+    logging.critical('Mount point does not support SEEK_HOLE')
     sys.exit(1)
 
 if dry_run:
-    print('INFO: dry_run')
+    logging.info('dry_run')
 
 if not dry_run:
     os.makedirs(dump_dir)
@@ -301,7 +316,7 @@ data_size = 0
 
 
 start_time = time.perf_counter()
-print('INFO: Collecting...')
+logging.info('Collecting...')
 for cmd in ['getconf -a']:
     try:
         out = subprocess.check_output(shlex.split(cmd))
@@ -310,10 +325,10 @@ for cmd in ['getconf -a']:
             proc_file.write(str(out))
             proc_file.close()
     except Exception as e:
-        print('WARNING: command + "' + cmd + '" failed: ' + str(e))
+        logging.warning('command + "' + cmd + '" failed: ' + str(e))
 
 
-print('INFO: Dumping kernel info...')
+logging.info('Dumping kernel info...')
 iomem = parse_proc_iomem()
 data_size += dump_kpagecount(iomem, dry_run=dry_run)
 data_size += dump_kpageflags(iomem, dry_run=dry_run)
@@ -324,10 +339,10 @@ for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetyp
         if not dry_run:
             shutil.copyfile('/proc/' + proc_file, dump_dir / 'proc' / proc_file)
     except:
-        print('WARNING: Skipping: /proc/' + proc_file)
+        logging.warning('Skipping: /proc/' + proc_file)
 
 
-print('INFO: Dumping processes...')
+logging.info('Dumping processes...')
 proc_pids = glob.glob('/proc/[0-9]*')
 
 
@@ -336,15 +351,15 @@ for proc_pid in proc_pids:
 
 
 def compress_tar_gz(dump_dir):
-    print('INFO: Compressing archive using tar...')
+    logging.info('Compressing archive using tar...')
     arc = dump_dir.with_suffix('.tar.gz').as_posix()
     ret = subprocess.call(shlex.split('tar czf ' + arc + ' --sparse ' + dump_dir.as_posix()))
     if ret != 0:
-        print('ERROR: tar failed')
+        logging.critical('tar failed')
         sys.exit(1)
 
     shutil.rmtree(dump_dir)
-    print('INFO: Done ' + arc + '.tar.gz')
+    logging.info('Done ' + arc + '.tar.gz')
 
 
 
@@ -353,6 +368,6 @@ if not dry_run:
 
 elapsed_time = datetime.timedelta(seconds=time.perf_counter() - start_time)
 
-print('INFO: elapsed time: {}'.format(elapsed_time))
-print('INFO: statistics: data_size: {:.2f} MiB'.format(data_size / 1024 / 1024))
-print('INFO: statistics: estimated disk usage: {:.2f} MiB'.format(data_size * 2 / 1024 / 1024))
+logging.info('Elapsed time: {}'.format(elapsed_time))
+logging.info('Statistics: data_size: {:.2f} MiB'.format(data_size / 1024 / 1024))
+logging.info('Statistics: estimated disk usage: {:.2f} MiB'.format(data_size * 2 / 1024 / 1024))
