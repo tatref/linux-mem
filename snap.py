@@ -16,13 +16,17 @@
 
 
 from pathlib import Path
+from pstats import SortKey
 import argparse
+import cProfile, pstats, io
 import datetime
 import glob
+import json
 import logging
 import os
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -31,6 +35,15 @@ import time
 PAGE_SIZE = 4096
 
 
+
+def check_kernel():
+    #kernel = os.uname().release
+    #kernel_version = tuple(int(x) for x in kernel.split('-')[0].split('.'))
+    #print(kernel_version)
+    #if kernel_version < (1, 2, 3):
+    #    print('ERROR: kernel is too old')
+    #    sys.exit(1)
+    return True
 
 
 def check_tar_version():
@@ -265,17 +278,12 @@ if not check_tar_version():
     sys.exit(1)
 
 
-#kernel = os.uname().release
-#kernel_version = tuple(int(x) for x in kernel.split('-')[0].split('.'))
-#print(kernel_version)
-#if kernel_version < (1, 2, 3):
-#    print('ERROR: kernel is too old')
-#    sys.exit(1)
 
 
 parser = argparse.ArgumentParser(description="Linux memory snapshot")
 parser.add_argument('--verbose', '-v', action='store_true', help="Verbose")
 subparsers = parser.add_subparsers(help='Mode of operation', dest='mode')
+subparsers.required = True
 parser_dump = subparsers.add_parser('dump', help="Generate a dump")
 parser_dump = parser_dump.add_argument('dump_dir', help="Path to create the archive. `.tar.gz` is appended.")
 parser_test = subparsers.add_parser('test', help="Dry run. Provide statistics")
@@ -295,6 +303,7 @@ else:
     loglevel = logging.INFO
 logging.basicConfig(encoding='utf-8', level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%I:%M:%S')
 
+logging.debug(args)
 
 if mode == 'dump':
     logging.info('Tmp path = %s', dump_dir.absolute())
@@ -314,7 +323,6 @@ if mode == 'test':
 if mode == 'dump':
     os.makedirs(dump_dir)
     os.makedirs(dump_dir / 'proc')
-    os.makedirs(dump_dir / 'proc/sysvipc')
 
 
 
@@ -322,8 +330,19 @@ block_size = int(subprocess.check_output(shlex.split("stat -fc %s .")))
 data_size = 0
 
 
-start_time = time.perf_counter()
+global_chrono = time.perf_counter()
 logging.info('Collecting...')
+
+profile = False
+if profile:
+    pr = cProfile.Profile()
+    pr.enable()
+
+metadata = {}
+metadata['hostname'] = socket.gethostname()
+metadata['datetime'] = datetime.datetime.now()
+
+
 for cmd in ['getconf -a']:
     try:
         out = subprocess.check_output(shlex.split(cmd))
@@ -336,31 +355,58 @@ for cmd in ['getconf -a']:
 
 
 logging.info('Dumping kernel info...')
+kernel_chrono = time.perf_counter()
+
 iomem = parse_proc_iomem()
 data_size += dump_kpagecount(iomem)
 data_size += dump_kpageflags(iomem)
 
 
-for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm']:
+for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm', 'zoneinfo']:
+    proc_file = Path(proc_file)
     try:
         if mode == 'dump':
-            shutil.copyfile('/proc/' + proc_file, dump_dir / 'proc' / proc_file)
-    except:
+            os.makedirs((dump_dir / 'proc' / proc_file).parent, exist_ok=True)
+            shutil.copyfile('/proc' / proc_file, dump_dir / 'proc' / proc_file)
+    except Exception as e:
         logging.warning('Skipping: /proc/' + proc_file)
+        logging.debug(e)
+kernel_duration = time.perf_counter() - kernel_chrono
+kernel_duration = datetime.timedelta(seconds=kernel_duration)
 
 
 logging.info('Dumping processes...')
+processes_chrono = time.perf_counter()
+
 proc_pids = glob.glob('/proc/[0-9]*')
-
-
+n_procs = len(proc_pids)
 for proc_pid in proc_pids:
     data_size += handle_proc_pid(proc_pid)
 
+#pool = ThreadPool(processes=4)
+#results = pool.map(handle_proc_pid, proc_pids)
+#pool.close()
+#data_size += sum(results)
 
-def compress_tar_gz(dump_dir):
+processes_duration = time.perf_counter() - processes_chrono
+processes_duration = datetime.timedelta(seconds=processes_duration)
+
+
+if profile:
+    pr.disable()
+    s = io.StringIO()
+    sortby = SortKey.CUMULATIVE
+    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    ps.print_stats()
+    print(s.getvalue())
+
+
+def compress_tar_gz(dump_dir: Path):
     logging.info('Compressing archive using tar...')
     arc = dump_dir.with_suffix('.tar.gz').as_posix()
-    ret = subprocess.call(shlex.split('tar czf ' + arc + ' --sparse ' + dump_dir.as_posix()))
+    cmd = 'tar czf ' + arc + ' --sparse -C ' + dump_dir.parent.as_posix() + ' ' + dump_dir.name
+    logging.debug(cmd)
+    ret = subprocess.call(shlex.split(cmd))
     if ret != 0:
         logging.critical('tar failed')
         sys.exit(1)
@@ -369,12 +415,30 @@ def compress_tar_gz(dump_dir):
     logging.info('Done ' + arc + '.tar.gz')
 
 
+metadata['timings'] = {}
+metadata['timings']['kernel_duration'] = kernel_duration
+metadata['timings']['processes_duration'] = processes_duration
 
 if mode == 'dump':
+    with open(dump_dir / "metadata.json", 'x') as f:
+        json.dump(metadata, f, indent=4, sort_keys=True, default=str)
+
+
+if mode == 'dump':
+    compress_chrono = time.perf_counter()
     compress_tar_gz(dump_dir)
+    compress_duration = time.perf_counter() - compress_chrono
+else:
+    compress_duration = None
 
-elapsed_time = datetime.timedelta(seconds=time.perf_counter() - start_time)
+global_duration = datetime.timedelta(seconds=time.perf_counter() - global_chrono)
+if mode == 'dump':
+    compress_duration = datetime.timedelta(seconds=compress_duration)
 
-logging.info('Elapsed time: {}'.format(elapsed_time))
-logging.info('Statistics: data_size: {:.2f} MiB'.format(data_size / 1024 / 1024))
+logging.info('Total duration: {}'.format(global_duration))
+logging.info('Kernel duration: {}'.format(kernel_duration))
+logging.info('Processes duration: {}'.format(processes_duration))
+logging.info('Processes {}'.format(n_procs))
+logging.info('Compression duration: {}'.format(compress_duration))
+logging.info('Statistics: read data: {:.2f} MiB'.format(data_size / 1024 / 1024))
 logging.info('Statistics: estimated disk usage: {:.2f} MiB'.format(data_size * 2 / 1024 / 1024))
