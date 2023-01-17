@@ -55,6 +55,21 @@ def check_tar_version():
     return True
 
 
+def dump_getconf():
+    try:
+        result = {}
+        out = subprocess.check_output(shlex.split('getconf -a'))
+        for line in out.splitlines():
+            l =  str(line, 'utf-8').split()
+            if len(l) == 1:
+                result[l[0]] = None
+            else:
+                result[l[0]] = ' '.join(l[1:])
+        return result
+    except Exception as e:
+        logging.warning("Can't run 'getconf': {}", e)
+
+
 def parse_proc_pid_maps(path):
     result = []
     f = open(path)
@@ -343,15 +358,16 @@ metadata['hostname'] = socket.gethostname()
 metadata['datetime'] = datetime.datetime.now()
 
 
-for cmd in ['getconf -a']:
-    try:
-        out = subprocess.check_output(shlex.split(cmd))
-        if mode == 'dump':
-            proc_file = open(dump_dir / cmd.replace(' ', '_'), 'w')
-            proc_file.write(str(out))
-            proc_file.close()
-    except Exception as e:
-        logging.warning('command + "' + cmd + '" failed: ' + str(e))
+metadata['getconf'] = dump_getconf()
+#for cmd in ['getconf -a']:
+#    try:
+#        out = subprocess.check_output(shlex.split(cmd))
+#        if mode == 'dump':
+#            proc_file = open(dump_dir / cmd.replace(' ', '_'), 'w')
+#            proc_file.write(str(out))
+#            proc_file.close()
+#    except Exception as e:
+#        logging.warning('command + "' + cmd + '" failed: ' + str(e))
 
 
 logging.info('Dumping kernel info...')
