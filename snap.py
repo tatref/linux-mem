@@ -378,7 +378,7 @@ data_size += dump_kpagecount(iomem)
 data_size += dump_kpageflags(iomem)
 
 
-for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm', 'zoneinfo']:
+for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm', 'swaps', 'zoneinfo']:
     proc_file = Path(proc_file)
     try:
         if mode == 'dump':
