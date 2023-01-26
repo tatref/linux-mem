@@ -218,7 +218,7 @@ def handle_proc_pid(proc_pid):
             logging.debug(e)
 
         # handle files
-        for proc_file in ['cmdline', 'maps', 'smaps', 'status', 'stat', 'environ']:
+        for proc_file in ['cmdline', 'maps', 'smaps', 'smaps_rollup', 'status', 'stat', 'statm', 'environ']:
             if mode == 'dump':
                 shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file)
                 file_size = os.stat(dest / proc_file).st_size
