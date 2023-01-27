@@ -17,24 +17,27 @@
 # See https://blogs.oracle.com/scoter/post/oracle-linux-and-unbreakable-enterprise-kernel-uek-releases
 #
 
+import sys
+import os
 
 from pathlib import Path
-#from pstats import SortKey
 import argparse
-#import cProfile, pstats, io
 import datetime
 import glob
 import json
 import logging
-import os
 import shlex
 import shutil
 import socket
 import subprocess
-import sys
 import time
-
 from typing import List, Set, Dict, Tuple, Optional, Union, Any
+
+profile = False
+if profile:
+    from pstats import SortKey
+    import cProfile, pstats, io
+
 
 
 PAGE_SIZE = os.sysconf('SC_PAGE_SIZE')
@@ -363,7 +366,6 @@ data_size = 0
 global_chrono = time.perf_counter()
 logging.info('Collecting...')
 
-profile = False
 if profile:
     pr = cProfile.Profile()
     pr.enable()
