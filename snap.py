@@ -32,7 +32,7 @@ import sys
 import time
 
 
-PAGE_SIZE = 4096
+PAGE_SIZE = os.sysconf('SC_PAGE_SIZE')
 
 
 
@@ -218,7 +218,15 @@ def handle_proc_pid(proc_pid):
             logging.debug(e)
 
         # handle files
-        for proc_file in ['cmdline', 'maps', 'smaps', 'smaps_rollup', 'status', 'stat', 'statm', 'environ']:
+        for (proc_file, mandatory) in [
+            ('cmdline', True),
+            ('maps', True),
+            ('smaps', True),
+            #('smaps_rollup', False),
+            ('status', True),
+            ('stat', True),
+            ('statm', True),
+            ('environ', True)]:
             if mode == 'dump':
                 shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file)
                 file_size = os.stat(dest / proc_file).st_size
