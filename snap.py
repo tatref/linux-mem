@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# TODO:
+#  * type hints https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html#variables
+# mypy --allow-redefinition snap.py
 #
 # Tested kernels:
 # - 5.15 (UEK7)
@@ -31,12 +34,14 @@ import subprocess
 import sys
 import time
 
+from typing import List, Set, Dict, Tuple, Optional, Union, Any
+
 
 PAGE_SIZE = os.sysconf('SC_PAGE_SIZE')
 
 
 
-def check_kernel():
+def check_kernel() ->bool:
     #kernel = os.uname().release
     #kernel_version = tuple(int(x) for x in kernel.split('-')[0].split('.'))
     #print(kernel_version)
@@ -46,7 +51,7 @@ def check_kernel():
     return True
 
 
-def check_tar_version():
+def check_tar_version() -> bool:
     output = subprocess.check_output(shlex.split("tar --version")).splitlines()[0]
     version = output.split(b' ')[-1]
     version = tuple(int(x) for x in version.split(b'.'))
@@ -55,9 +60,9 @@ def check_tar_version():
     return True
 
 
-def dump_getconf():
+def parse_getconf() -> Dict[str, Optional[str]]:
     try:
-        result = {}
+        result: Dict[str, Optional[str]] = {}
         out = subprocess.check_output(shlex.split('getconf -a'))
         for line in out.splitlines():
             l =  str(line, 'utf-8').split()
@@ -68,9 +73,10 @@ def dump_getconf():
         return result
     except Exception as e:
         logging.warning("Can't run 'getconf': {}", e)
+        return {}
 
 
-def parse_proc_pid_maps(path):
+def parse_proc_pid_maps(path) -> List[Tuple[int, int, str]]:
     result = []
     f = open(path)
     maps = f.readlines()
@@ -314,9 +320,7 @@ args = parser.parse_args()
 
 mode = args.mode
 if mode == 'dump':
-    dump_dir = Path(args.dump_dir)
-else:
-    dump_dir = None
+    dump_dir: Path = Path(args.dump_dir)
 verbose = args.verbose
 
 
@@ -361,12 +365,12 @@ if profile:
     pr = cProfile.Profile()
     pr.enable()
 
-metadata = {}
+metadata: Dict[str, Any] = {}
 metadata['hostname'] = socket.gethostname()
-metadata['datetime'] = datetime.datetime.now()
+metadata['datetime'] = datetime.datetime.now().isoformat()
 
 
-metadata['getconf'] = dump_getconf()
+metadata['getconf'] = parse_getconf()
 #for cmd in ['getconf -a']:
 #    try:
 #        out = subprocess.check_output(shlex.split(cmd))
@@ -407,11 +411,6 @@ n_procs = len(proc_pids)
 for proc_pid in proc_pids:
     data_size += handle_proc_pid(proc_pid)
 
-#pool = ThreadPool(processes=4)
-#results = pool.map(handle_proc_pid, proc_pids)
-#pool.close()
-#data_size += sum(results)
-
 processes_duration = time.perf_counter() - processes_chrono
 processes_duration = datetime.timedelta(seconds=processes_duration)
 
@@ -440,8 +439,8 @@ def compress_tar_gz(dump_dir: Path):
 
 
 metadata['timings'] = {}
-metadata['timings']['kernel_duration'] = kernel_duration
-metadata['timings']['processes_duration'] = processes_duration
+metadata['timings']['kernel_duration'] = str(kernel_duration)
+metadata['timings']['processes_duration'] = str(processes_duration)
 
 if mode == 'dump':
     with open(dump_dir / "metadata.json", 'x') as f:
@@ -451,7 +450,7 @@ if mode == 'dump':
 if mode == 'dump':
     compress_chrono = time.perf_counter()
     compress_tar_gz(dump_dir)
-    compress_duration = time.perf_counter() - compress_chrono
+    compress_duration: Any = time.perf_counter() - compress_chrono
 else:
     compress_duration = None
 
