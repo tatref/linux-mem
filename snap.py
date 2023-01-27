@@ -19,9 +19,9 @@
 
 
 from pathlib import Path
-from pstats import SortKey
+#from pstats import SortKey
 import argparse
-import cProfile, pstats, io
+#import cProfile, pstats, io
 import datetime
 import glob
 import json
@@ -328,7 +328,10 @@ if verbose:
     loglevel = logging.DEBUG
 else:
     loglevel = logging.INFO
-logging.basicConfig(encoding='utf-8', level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%I:%M:%S')
+if sys.version_info < (3, 9):
+    logging.basicConfig(level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%I:%M:%S')
+else:
+    logging.basicConfig(encoding='utf-8', level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%I:%M:%S')
 
 logging.debug(args)
 
