@@ -359,7 +359,9 @@ if mode == 'dump':
 
 
 
+# FS block size
 block_size = int(subprocess.check_output(shlex.split("stat -fc %s .")))
+# Running size of copied data for test mode
 data_size = 0
 
 
@@ -373,18 +375,7 @@ if profile:
 metadata: Dict[str, Any] = {}
 metadata['hostname'] = socket.gethostname()
 metadata['datetime'] = datetime.datetime.now().isoformat()
-
-
 metadata['getconf'] = parse_getconf()
-#for cmd in ['getconf -a']:
-#    try:
-#        out = subprocess.check_output(shlex.split(cmd))
-#        if mode == 'dump':
-#            proc_file = open(dump_dir / cmd.replace(' ', '_'), 'w')
-#            proc_file.write(str(out))
-#            proc_file.close()
-#    except Exception as e:
-#        logging.warning('command + "' + cmd + '" failed: ' + str(e))
 
 
 logging.info('Dumping kernel info...')
