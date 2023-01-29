@@ -1,8 +1,16 @@
 # Linux memory tools
 
-A toolbox to inspect / play with Linux memory
+A toolbox to inspect Linux memory
 
-# Requirements
+# shmat
+
+Attach shared memory segments to current process
+
+# snap.py
+
+Take a snapshot of /proc for further inspection
+
+## Requirements
 
 * `tar` => 1.29 is required (it provides the `SEEK_HOLE` and `SEEK_DATA` syscalls)
 * Python 3 is required
@@ -17,7 +25,7 @@ A toolbox to inspect / play with Linux memory
   * GFS2 (since Linux 4.15)
 
 
-## OEL 7
+### OEL 7
 
 Compiling latest `tar`
 
@@ -44,11 +52,11 @@ export PATH=./tar-1.34/src:$PATH
 python3 ./snap.py dump
 ```
 
-## OEL 8
+### OEL 8
 
 TODO
 
-## OEL 9
+### OEL 9
 
 ```
 yum install tar
