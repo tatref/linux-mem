@@ -101,7 +101,7 @@ def dump_pid_pagemap(pid, dest):
 
     maps = parse_proc_pid_maps('/proc/' + pid + '/maps')
     fi = open('/proc/' + pid + '/pagemap', 'rb')
-    if mode == 'dump':
+    if mode == 'run':
         fo = open(dest / 'pagemap', 'wb')
 
     for entry in maps:
@@ -119,12 +119,12 @@ def dump_pid_pagemap(pid, dest):
         data = fi.read(pages * ENTRY_SIZE)
         data_size += pages * ENTRY_SIZE
 
-        if mode == 'dump':
+        if mode == 'run':
             fo.seek(offset)
             fo.write(data)
 
     fi.close()
-    if mode == 'dump':
+    if mode == 'run':
         fo.close()
 
     return data_size
@@ -149,7 +149,7 @@ def dump_kpagecount(iomem):
     data_size = 0
 
     fi = open('/proc/kpagecount', 'rb')
-    if mode == 'dump':
+    if mode == 'run':
         fo = open(dump_dir / 'proc/kpagecount', 'wb')
     for (start, end, name) in iomem:
         if name != 'System RAM':
@@ -164,12 +164,12 @@ def dump_kpagecount(iomem):
         data = fi.read(pages * ENTRY_SIZE)
         data_size += pages * ENTRY_SIZE
 
-        if mode == 'dump':
+        if mode == 'run':
             fo.seek(offset)
             fo.write(data)
 
     fi.close()
-    if mode == 'dump':
+    if mode == 'run':
         fo.close()
 
     return data_size
@@ -181,7 +181,7 @@ def dump_kpageflags(iomem):
     data_size = 0
 
     fi = open('/proc/kpageflags', 'rb')
-    if mode == 'dump':
+    if mode == 'run':
         fo = open(dump_dir / 'proc/kpageflags', 'wb')
     for (start, end, name) in iomem:
         if name != 'System RAM':
@@ -197,12 +197,12 @@ def dump_kpageflags(iomem):
         data = fi.read(pages * ENTRY_SIZE)
         data_size += pages * ENTRY_SIZE
 
-        if mode == 'dump':
+        if mode == 'run':
             fo.seek(offset)
             fo.write(data)
 
     fi.close()
-    if mode == 'dump':
+    if mode == 'run':
         fo.close()
 
     return data_size
@@ -212,7 +212,7 @@ def handle_proc_pid(proc_pid):
     data_size = 0
     pid = proc_pid[6:]
     
-    if mode == 'dump':
+    if mode == 'run':
         dest = dump_dir / 'proc/' / pid
         os.makedirs(dest)
     else:
@@ -236,7 +236,7 @@ def handle_proc_pid(proc_pid):
             ('stat', True),
             ('statm', True),
             ('environ', True)]:
-            if mode == 'dump':
+            if mode == 'run':
                 shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file)
                 file_size = os.stat(dest / proc_file).st_size
             else:
@@ -253,11 +253,11 @@ def handle_proc_pid(proc_pid):
                 os.readlink(proc_pid + '/' + proc_file)
             except:
                 continue
-            if mode == 'dump':
+            if mode == 'run':
                 shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file, follow_symlinks=False)
     except Exception as e:
         print('WARNING: Skipping PID ' + pid + ': ' + str(e))
-        if mode == 'dump':
+        if mode == 'run':
             shutil.rmtree(dest)
 
     return data_size
@@ -316,13 +316,13 @@ parser = argparse.ArgumentParser(description="Linux memory snapshot")
 parser.add_argument('--verbose', '-v', action='store_true', help="Verbose")
 subparsers = parser.add_subparsers(help='Mode of operation', dest='mode')
 subparsers.required = True
-parser_dump = subparsers.add_parser('dump', help="Generate a dump")
+parser_dump = subparsers.add_parser('run', help="Generate a dump")
 parser_dump = parser_dump.add_argument('dump_dir', help="Path to create the archive. `.tar.gz` is appended.")
 parser_test = subparsers.add_parser('test', help="Dry run. Provide statistics")
 args = parser.parse_args()
 
 mode = args.mode
-if mode == 'dump':
+if mode == 'run':
     dump_dir: Path = Path(args.dump_dir)
 verbose = args.verbose
 
@@ -338,7 +338,7 @@ else:
 
 logging.debug(args)
 
-if mode == 'dump':
+if mode == 'run':
     logging.info('Tmp path = %s', dump_dir.absolute())
     logging.info('Dump archive = %s.tar.gz', dump_dir.absolute().with_suffix('.tar.gz'))
 
@@ -346,14 +346,14 @@ if os.geteuid() != 0:
     logging.critical('Run as root / sudo')
     sys.exit(1)
 
-if mode == 'dump' and not test_seek_hole(dump_dir):
+if mode == 'run' and not test_seek_hole(dump_dir):
     logging.critical('Mount point does not support SEEK_HOLE')
     sys.exit(1)
 
 if mode == 'test':
     logging.info('Test mode: no file will be generated')
 
-if mode == 'dump':
+if mode == 'run':
     os.makedirs(dump_dir)
     os.makedirs(dump_dir / 'proc')
 
@@ -389,7 +389,7 @@ data_size += dump_kpageflags(iomem)
 for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetypeinfo', 'slabinfo', 'sysvipc/shm', 'swaps', 'zoneinfo']:
     proc_file = Path(proc_file)
     try:
-        if mode == 'dump':
+        if mode == 'run':
             os.makedirs((dump_dir / 'proc' / proc_file).parent, exist_ok=True)
             shutil.copyfile('/proc' / proc_file, dump_dir / 'proc' / proc_file)
     except Exception as e:
@@ -438,12 +438,12 @@ metadata['timings'] = {}
 metadata['timings']['kernel_duration'] = str(kernel_duration)
 metadata['timings']['processes_duration'] = str(processes_duration)
 
-if mode == 'dump':
+if mode == 'run':
     with open(dump_dir / "metadata.json", 'x') as f:
         json.dump(metadata, f, indent=4, sort_keys=True, default=str)
 
 
-if mode == 'dump':
+if mode == 'run':
     compress_chrono = time.perf_counter()
     compress_tar_gz(dump_dir)
     compress_duration: Any = time.perf_counter() - compress_chrono
@@ -451,7 +451,7 @@ else:
     compress_duration = None
 
 global_duration = datetime.timedelta(seconds=time.perf_counter() - global_chrono)
-if mode == 'dump':
+if mode == 'run':
     compress_duration = datetime.timedelta(seconds=compress_duration)
 
 logging.info('Total duration: {}'.format(global_duration))
