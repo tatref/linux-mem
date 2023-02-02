@@ -6,13 +6,19 @@
 // pahole -C task_struct /sys/kernel/btf/vmlinux
 
 use itertools::Itertools;
-use procfs::{process::Pfn, PhysicalMemoryMap, PhysicalPageFlags};
+use procfs::{
+    process::{MMapPath, Pfn, Process},
+    PhysicalMemoryMap, PhysicalPageFlags,
+};
 use std::collections::{HashMap, HashSet};
 
 use procfs::{
     process::{MemoryMap, PageInfo},
     Shm,
 };
+
+use oracle::{Connector, Privilege};
+use std::ffi::OsString;
 
 /// Convert pfn to index into non-contiguous memory mappings
 pub fn pfn_to_index(iomem: &[PhysicalMemoryMap], page_size: u64, pfn: Pfn) -> Option<u64> {
@@ -171,7 +177,6 @@ pub fn shm2pfns(shm: &Shm) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
     // Map shared memory to current process
     {
         let shmaddr: *const libc::c_void = core::ptr::null();
-        // we don't want any permission
         let shmflags: libc::c_int = libc::SHM_RDONLY;
 
         unsafe {
@@ -222,6 +227,15 @@ pub fn shm2pfns(shm: &Shm) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
         }
     }
 
+    // detach shm
+    unsafe {
+        let ret = libc::shmdt(ptr);
+        if ret != 0 {
+            println!("shmdt failed for shmid {shmid}");
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+
     Ok(pfns)
 }
 
@@ -253,4 +267,88 @@ pub fn get_kernel_datastructure_size(
     kernel_struct_sizes.insert(kernel, (704, 9856));
 
     kernel_struct_sizes.get(&current_kernel).copied()
+}
+
+pub fn get_memory_maps_for_process(
+    process: &Process,
+) -> Result<Vec<(MemoryMap, Vec<PageInfo>)>, Box<dyn std::error::Error>> {
+    let page_size = procfs::page_size();
+
+    let mut pagemap = process.pagemap()?;
+    let memmap = process.maps()?;
+
+    let result = memmap
+        .iter()
+        .filter_map(|memory_map| {
+            let index_start = (memory_map.address.0 / page_size) as usize;
+            let index_end = (memory_map.address.1 / page_size) as usize;
+
+            // can't scan Vsyscall, so skip it
+            match &memory_map.pathname {
+                MMapPath::Vsyscall => return None,
+                _ => (),
+            }
+
+            let pages = match pagemap.get_range_info(index_start..index_end) {
+                Ok(x) => x,
+                Err(_) => return None,
+            };
+
+            Some((memory_map.clone(), pages))
+        })
+        .collect();
+
+    Ok(result)
+}
+
+/// Connect to DB using OS auth and env vars
+/// return size of SGA
+pub fn get_sga_size() -> u64 {
+    let conn = Connector::new("", "", "")
+        .external_auth(true)
+        .privilege(Privilege::Sysdba)
+        .connect()
+        .unwrap();
+    let sql = "select sum(value) from v$sga where name in ('Variable Size', 'Database Buffers')";
+    let sga_size = conn.query_row_as::<u64>(sql, &[]).expect("query failed");
+
+    sga_size
+}
+
+/// Find smons processes
+/// For each, return (pid, uid, ORACLE_SID, ORACLE_HOME)
+pub fn find_smons() -> Vec<(i32, u32, OsString, OsString)> {
+    let smons: Vec<_> = procfs::process::all_processes()
+        .unwrap()
+        .filter(|proc| {
+            let cmdline = proc.as_ref().unwrap().cmdline().unwrap();
+            if cmdline.len() == 1 && cmdline[0].starts_with("ora_smon_") {
+                true
+            } else {
+                false
+            }
+        })
+        .map(|p| p.unwrap())
+        .collect();
+
+    let result = smons
+        .iter()
+        .map(|smon| {
+            let pid = smon.pid;
+            let uid = smon.uid().unwrap();
+            let environ = smon.environ().unwrap();
+            let sid = environ
+                .get(&OsString::from("ORACLE_SID"))
+                .unwrap()
+                .to_os_string();
+            let home = environ
+                .get(&OsString::from("ORACLE_HOME"))
+                .unwrap()
+                .to_os_string();
+
+            (pid, uid, sid, home)
+        })
+        .collect();
+
+    result
 }
