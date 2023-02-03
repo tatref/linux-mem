@@ -3,6 +3,7 @@
 #![feature(drain_filter)]
 
 // TODO:
+// - uss / shared
 // - remove unwraps
 //
 
@@ -11,7 +12,7 @@ use procfs::{
     PhysicalPageFlags, Shm,
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
     os::unix::process::CommandExt,
     process::Command,
@@ -110,33 +111,44 @@ struct ProcessGroup {
     name: String,
     processes: Vec<Process>,
 }
-struct ProcessSplitterBySID {
+impl PartialEq for ProcessGroup {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+struct ProcessSplitterByEnvVariable {
+    var: OsString,
     groups: HashMap<Option<OsString>, ProcessGroup>,
 }
-impl ProcessSplitterBySID {
-    fn split(mut processes: Vec<Process>) -> Self {
+impl ProcessSplitterByEnvVariable {
+    fn new<S: AsRef<OsStr>>(var: S) -> Self {
+        Self {
+            groups: HashMap::new(),
+            var: var.as_ref().to_os_string(),
+        }
+    }
+    fn split(&mut self, mut processes: Vec<Process>) {
         let sids: HashSet<Option<OsString>> = processes
             .iter()
             .map(|p| {
                 let environ = p.environ().unwrap();
-                environ.get(&OsString::from("ORACLE_SID")).cloned()
+                environ.get(&self.var).cloned()
             })
             .collect();
 
         let mut groups = HashMap::new();
         for sid in sids {
             let some_processes: Vec<Process> = processes
-                .drain_filter(|p| {
-                    p.environ().unwrap().get(&OsString::from("ORACLE_SID")) == sid.as_ref()
-                })
+                .drain_filter(|p| p.environ().unwrap().get(&self.var) == sid.as_ref())
                 .collect();
             let process_group = ProcessGroup {
-                name: format!("SID={:?}", sid),
+                name: format!("{:?}={:?}", self.var, sid),
                 processes: some_processes,
             };
             groups.insert(sid, process_group);
         }
-        Self { groups }
+        self.groups = groups;
     }
     fn groups(&self) -> impl Iterator<Item = &ProcessGroup> {
         self.groups.values()
@@ -282,8 +294,10 @@ fn main() {
 
         // subprogram to connect to instance and print sga size
         // We should have the correct context (user, env vars) to connect to database
-
         let sga_size = snap::get_sga_size();
+
+        // print value
+        // parent will grab that value in `get_smon_info`
         println!("{sga_size}");
         std::process::exit(0);
     }
@@ -291,7 +305,7 @@ fn main() {
     assert_eq!(users::get_current_uid(), 0);
 
     // first run
-    // find smons processes, and for each spawn a new process in the correct context
+    // find smons processes, and for each spawn a new process in the correct context to get infos
 
     let instances: Vec<SmonInfo> = snap::find_smons()
         .iter()
@@ -312,16 +326,6 @@ fn main() {
 
     let page_size = procfs::page_size();
 
-    // the PIDs we want to mesure
-    let pids: Vec<i32> = std::env::args()
-        .skip(1)
-        .map(|pid| pid.parse().expect("Not a number"))
-        .collect();
-
-    if pids.len() < 1 {
-        panic!("Provide at least 1 PID");
-    }
-
     // shm (key, id) -> PFNs
     let mut shm_pfns: HashMap<(i32, u64), HashSet<Pfn>> = HashMap::new();
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
@@ -329,10 +333,11 @@ fn main() {
         shm_pfns.insert((shm.key, shm.shmid), pfns);
     }
 
+    // probably incorrect?
     // size of kernel structures
-    let current_kernel = procfs::sys::kernel::Version::current().unwrap();
-    let (fd_size, task_size) =
-        snap::get_kernel_datastructure_size(current_kernel).expect("Unknown kernel");
+    //let current_kernel = procfs::sys::kernel::Version::current().unwrap();
+    //let (fd_size, task_size) =
+    //    snap::get_kernel_datastructure_size(current_kernel).expect("Unknown kernel");
 
     //let mut kpagecount = procfs::KPageCount::new().expect("Can't open /proc/kpagecount");
     let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
@@ -369,6 +374,7 @@ fn main() {
     let chrono = std::time::Instant::now();
 
     let my_pid = std::process::id();
+    //let my_pid = -1;
 
     let processes: Vec<Process> = procfs::process::all_processes()
         .unwrap()
@@ -379,18 +385,32 @@ fn main() {
     users::get_current_uid();
 
     let groups = ProcessSplitterByUid::split(processes);
-    for group in groups.groups() {
-        let group_info = processes_group_info(&group);
+    println!("Processes per user:");
+    for group1 in groups.groups() {
+        let mut other_pfns = HashSet::new();
+        for group2 in groups.groups() {
+            if group1 != group2 {
+                let group2_info = processes_group_info(&group2);
+                other_pfns.extend(group2_info.pfns);
+            }
+        }
 
-        let pfns = group_info.pfns.len();
-        let rss = group_info.pfns.len() as u64 * page_size / 1024 / 1024;
+        let group1_info = processes_group_info(&group1);
 
-        println!("{:<10} {} MiB", group.name, rss);
+        let pfns = group1_info.pfns.len();
+        let rss = group1_info.pfns.len() as u64 * page_size / 1024 / 1024;
+        let uss = group1_info.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
+
+        println!("{:>30} RSS={:>6} MiB USS={:>6} MiB", group1.name, rss, uss);
     }
     println!();
 
+    // get processes back, consuming `groups`
     let processes: Vec<Process> = groups.collect_processes();
-    let groups = ProcessSplitterBySID::split(processes);
+
+    let mut groups = ProcessSplitterByEnvVariable::new("ORACLE_SID");
+    println!("Processes per env variable 'ORACLE_SID'");
+    groups.split(processes);
     for group in groups.groups() {
         let group_info = processes_group_info(&group);
 

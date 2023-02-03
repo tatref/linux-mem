@@ -19,7 +19,7 @@ libc = "0.2.133"
 procfs = { path = "procfs" }
 
 #egui = "0.20.0"
-image = "0.24.5"
+image = { version = "0.24.5", default_features = false, features = ["png"] }
 colorgrad = "0.6.2"
 #egui_demo_lib = "0.20.0"
 #eframe = "0.20.0"

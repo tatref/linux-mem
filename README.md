@@ -8,7 +8,7 @@ Attach shared memory segments to current process
 
 # snap.py
 
-Take a snapshot of /proc for further inspection
+Take a snapshot of /proc for later inspection
 
 ## Requirements
 
