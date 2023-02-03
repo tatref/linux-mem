@@ -12,7 +12,7 @@ use procfs::{
     PhysicalPageFlags, Shm,
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{hash_map::Values, BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
     os::unix::process::CommandExt,
     process::Command,
@@ -117,6 +117,15 @@ impl PartialEq for ProcessGroup {
     }
 }
 
+trait ProcessSplitter<'a> {
+    type GroupIter<'b: 'a>: Iterator<Item = &'a ProcessGroup>
+    where
+        Self: 'b;
+    fn split(&mut self, processes: Vec<Process>);
+    fn iter_groups<'b>(&'b self) -> Self::GroupIter<'b>;
+    fn collect_processes(self) -> Vec<Process>;
+}
+
 struct ProcessSplitterByEnvVariable {
     var: OsString,
     groups: HashMap<Option<OsString>, ProcessGroup>,
@@ -128,6 +137,11 @@ impl ProcessSplitterByEnvVariable {
             var: var.as_ref().to_os_string(),
         }
     }
+}
+
+impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
+    type GroupIter<'b: 'a> = Values<'a, Option<OsString>, ProcessGroup>;
+
     fn split(&mut self, mut processes: Vec<Process>) {
         let sids: HashSet<Option<OsString>> = processes
             .iter()
@@ -150,7 +164,7 @@ impl ProcessSplitterByEnvVariable {
         }
         self.groups = groups;
     }
-    fn groups(&self) -> impl Iterator<Item = &ProcessGroup> {
+    fn iter_groups<'x>(&'a self) -> Self::GroupIter<'a> {
         self.groups.values()
     }
     fn collect_processes(self) -> Vec<Process> {
@@ -411,7 +425,7 @@ fn main() {
     let mut groups = ProcessSplitterByEnvVariable::new("ORACLE_SID");
     println!("Processes per env variable 'ORACLE_SID'");
     groups.split(processes);
-    for group in groups.groups() {
+    for group in groups.iter_groups() {
         let group_info = processes_group_info(&group);
 
         let pfns = group_info.pfns.len();
