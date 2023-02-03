@@ -3,7 +3,7 @@
 #![feature(drain_filter)]
 
 // TODO:
-// - uss / shared
+// - replace Vec<Process> by Vec<ProcessInfo>
 // - remove unwraps
 //
 
@@ -12,14 +12,14 @@ use procfs::{
     PhysicalPageFlags, Shm,
 };
 use std::{
-    collections::{hash_map::Values, BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
     os::unix::process::CommandExt,
     process::Command,
 };
 
 struct ProcessInfo {
-    pid: i32,
+    process: Process,
     pfns: HashSet<Pfn>,
     swap_pages: HashSet<(u64, u64)>,
     rss: u64,
@@ -140,7 +140,7 @@ impl ProcessSplitterByEnvVariable {
 }
 
 impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
-    type GroupIter<'b: 'a> = Values<'a, Option<OsString>, ProcessGroup>;
+    type GroupIter<'b: 'a> = std::collections::hash_map::Values<'a, Option<OsString>, ProcessGroup>;
 
     fn split(&mut self, mut processes: Vec<Process>) {
         let sids: HashSet<Option<OsString>> = processes
@@ -175,12 +175,20 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
     }
 }
 struct ProcessSplitterByUid {
-    groups: HashMap<u32, ProcessGroup>,
+    groups: BTreeMap<u32, ProcessGroup>,
 }
+
 impl ProcessSplitterByUid {
-    fn split(mut processes: Vec<Process>) -> Self {
+    fn new() -> Self {
+        Self {
+            groups: BTreeMap::new(),
+        }
+    }
+}
+impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
+    type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u32, ProcessGroup>;
+    fn split(&mut self, mut processes: Vec<Process>) {
         let uids: HashSet<u32> = processes.iter().map(|p| p.uid().unwrap()).collect();
-        let mut groups = HashMap::new();
 
         for uid in uids {
             let username = users::get_user_by_uid(uid).unwrap();
@@ -189,14 +197,13 @@ impl ProcessSplitterByUid {
                 .drain_filter(|p| p.uid().unwrap() == uid)
                 .collect();
             let process_group = ProcessGroup {
-                name: format!("{}'s processes", username),
+                name: format!("user {}", username),
                 processes: some_processes,
             };
-            groups.insert(uid, process_group);
+            self.groups.insert(uid, process_group);
         }
-        Self { groups }
     }
-    fn groups(&self) -> impl Iterator<Item = &ProcessGroup> {
+    fn iter_groups<'x>(&'a self) -> Self::GroupIter<'a> {
         self.groups.values()
     }
     fn collect_processes(self) -> Vec<Process> {
@@ -398,11 +405,12 @@ fn main() {
 
     users::get_current_uid();
 
-    let groups = ProcessSplitterByUid::split(processes);
+    let mut splitter = ProcessSplitterByUid::new();
+    splitter.split(processes);
     println!("Processes per user:");
-    for group1 in groups.groups() {
+    for group1 in splitter.iter_groups() {
         let mut other_pfns = HashSet::new();
-        for group2 in groups.groups() {
+        for group2 in splitter.iter_groups() {
             if group1 != group2 {
                 let group2_info = processes_group_info(&group2);
                 other_pfns.extend(group2_info.pfns);
@@ -420,12 +428,12 @@ fn main() {
     println!();
 
     // get processes back, consuming `groups`
-    let processes: Vec<Process> = groups.collect_processes();
+    let processes: Vec<Process> = splitter.collect_processes();
 
-    let mut groups = ProcessSplitterByEnvVariable::new("ORACLE_SID");
+    let mut splitter = ProcessSplitterByEnvVariable::new("ORACLE_SID");
     println!("Processes per env variable 'ORACLE_SID'");
-    groups.split(processes);
-    for group in groups.iter_groups() {
+    splitter.split(processes);
+    for group in splitter.iter_groups() {
         let group_info = processes_group_info(&group);
 
         let pfns = group_info.pfns.len();
