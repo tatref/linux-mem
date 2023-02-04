@@ -303,50 +303,43 @@ pub fn get_memory_maps_for_process(
 
 /// Connect to DB using OS auth and env vars
 /// return size of SGA
-pub fn get_sga_size() -> u64 {
+pub fn get_sga_size() -> Result<u64, Box<dyn std::error::Error>> {
     let conn = Connector::new("", "", "")
         .external_auth(true)
         .privilege(Privilege::Sysdba)
-        .connect()
-        .unwrap();
+        .connect()?;
     let sql = "select sum(value) from v$sga where name in ('Variable Size', 'Database Buffers')";
-    let sga_size = conn.query_row_as::<u64>(sql, &[]).expect("query failed");
+    let sga_size = conn.query_row_as::<u64>(sql, &[])?;
 
-    sga_size
+    Ok(sga_size)
 }
 
 /// Find smons processes
 /// For each, return (pid, uid, ORACLE_SID, ORACLE_HOME)
 pub fn find_smons() -> Vec<(i32, u32, OsString, OsString)> {
-    let smons: Vec<_> = procfs::process::all_processes()
+    let smons: Vec<Process> = procfs::process::all_processes()
         .unwrap()
-        .filter(|proc| {
-            let cmdline = proc.as_ref().unwrap().cmdline().unwrap();
+        .filter_map(|proc| {
+            let cmdline = proc.as_ref().ok()?.cmdline().ok()?;
+
             if cmdline.len() == 1 && cmdline[0].starts_with("ora_smon_") {
-                true
+                Some(proc.ok()?)
             } else {
-                false
+                None
             }
         })
-        .map(|p| p.unwrap())
         .collect();
 
     let result = smons
         .iter()
-        .map(|smon| {
+        .filter_map(|smon| {
             let pid = smon.pid;
-            let uid = smon.uid().unwrap();
-            let environ = smon.environ().unwrap();
-            let sid = environ
-                .get(&OsString::from("ORACLE_SID"))
-                .unwrap()
-                .to_os_string();
-            let home = environ
-                .get(&OsString::from("ORACLE_HOME"))
-                .unwrap()
-                .to_os_string();
+            let uid = smon.uid().ok()?;
+            let environ = smon.environ().ok()?;
+            let sid = environ.get(&OsString::from("ORACLE_SID"))?.to_os_string();
+            let home = environ.get(&OsString::from("ORACLE_HOME"))?.to_os_string();
 
-            (pid, uid, sid, home)
+            Some((pid, uid, sid, home))
         })
         .collect();
 
