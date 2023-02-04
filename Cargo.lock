@@ -874,6 +874,7 @@ dependencies = [
 [[package]]
 name = "procfs"
 version = "0.14.2"
+source = "git+https://github.com/tatref/procfs?branch=tatref#0181a2b922b7378f3a4794b127d6af6f13dac9ff"
 dependencies = [
  "bitflags",
  "byteorder",
