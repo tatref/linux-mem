@@ -1,11 +1,10 @@
 #!/usr/bin/env python
-# TODO:
-#  * type hints https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html#variables
-# mypy --allow-redefinition snap.py
+# 
+# /proc snapshot tool
+#
 #
 # Tested kernels:
 # - 5.15 (UEK7)
-#
 #
 # Not yet tested:
 # - 5.4 (UEK6)
@@ -16,6 +15,9 @@
 #
 # See https://blogs.oracle.com/scoter/post/oracle-linux-and-unbreakable-enterprise-kernel-uek-releases
 #
+# TODO:
+#  * type hints https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html#variables
+# mypy --allow-redefinition snap.py
 
 import sys
 import os

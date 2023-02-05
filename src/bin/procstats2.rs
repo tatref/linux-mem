@@ -353,7 +353,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.iter().nth(1) == Some(&String::from("get_sga")) {
-        assert_ne!(users::get_current_uid(), 0);
+        assert_ne!(users::get_effective_uid(), 0);
 
         // subprogram to connect to instance and print sga size
         // We should have the correct context (user, env vars) to connect to database
@@ -365,7 +365,7 @@ fn main() {
         std::process::exit(0);
     }
 
-    assert_eq!(users::get_current_uid(), 0);
+    assert_eq!(users::get_effective_uid(), 0);
 
     let pids: Vec<i32> = args
         .iter()
@@ -500,26 +500,29 @@ fn main() {
     // get processes back, consuming `groups`
     let processes: Vec<ProcessInfo> = splitter.collect_processes();
 
-    let mut splitter = ProcessSplitterByPids::new(&pids);
-    println!("Processes by PIDs");
-    splitter.split(processes);
-    for group1 in splitter.iter_groups() {
-        let mut other_pfns = HashSet::new();
-        for group2 in splitter.iter_groups() {
-            if group1 != group2 {
-                let group2_info = processes_group_info(&group2);
-                other_pfns.extend(group2_info.pfns);
+    if !pids.is_empty() {
+        let mut splitter = ProcessSplitterByPids::new(&pids);
+        println!("Processes by PIDs");
+        splitter.split(processes);
+        for group1 in splitter.iter_groups() {
+            let mut other_pfns = HashSet::new();
+            for group2 in splitter.iter_groups() {
+                if group1 != group2 {
+                    let group2_info = processes_group_info(&group2);
+                    other_pfns.extend(group2_info.pfns);
+                }
             }
+            let group1_info = processes_group_info(&group1);
+
+            let pfns = group1_info.pfns.len();
+            let rss = group1_info.pfns.len() as u64 * page_size / 1024 / 1024;
+            let uss =
+                group1_info.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
+
+            println!("{}\nRSS {:>6} MiB USS {:>6} MiB", group1.name, rss, uss);
         }
-        let group1_info = processes_group_info(&group1);
-
-        let pfns = group1_info.pfns.len();
-        let rss = group1_info.pfns.len() as u64 * page_size / 1024 / 1024;
-        let uss = group1_info.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
-
-        println!("{}\nRSS {:>6} MiB USS {:>6} MiB", group1.name, rss, uss);
+        println!();
     }
-    println!();
 
     panic!("finished");
     /*

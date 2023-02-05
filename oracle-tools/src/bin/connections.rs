@@ -1,4 +1,4 @@
-use oracle::{Connection, Error};
+use oracle::{Connector, Connection, Privilege};
 use std::env;
 use std::io::Write;
 
@@ -7,26 +7,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     dbg!(&args);
 
-    let host = &args[1];
-    let service = &args[2];
-    let user = &args[3];
-    let password = &args[4];
-    let max_conn = args[5].parse().unwrap();
-    let wait = args[6].parse().unwrap();
+    let connect_string = &args[1];
+    let user = &args[2];
+    let password = &args[3];
+    let max_conn = args[4].parse().unwrap();
 
-    let connections: Vec<Connection> = (0..max_conn)
+    let mut con = Connector::new(user, password, connect_string);
+    if user == "sys" {
+        con.privilege(Privilege::Sysdba);
+    }
+
+    let _connections: Vec<Connection> = (0..max_conn)
         .map(|i| {
             if i % 10 == 0 {
-                print!("{}/{}\r", i, max_conn);
-                std::io::stdout().lock().flush();
+                print!("{i}/{max_conn}\r");
+                std::io::stdout().lock().flush().unwrap();
             }
-            Connection::connect(user, password, format!("{}:1521/{}", host, service)).unwrap()
+            con.connect().unwrap()
         })
         .collect();
-    println!("\n{} connections", max_conn);
+    println!("\n{max_conn} connections");
 
-    println!("Sleeping for {}s", wait);
-    std::thread::sleep(std::time::Duration::from_secs(wait));
+    println!("^C to quit");
+    std::thread::sleep(std::time::Duration::from_secs(3600));
 
     Ok(())
 }

@@ -2,62 +2,47 @@
 
 A toolbox to inspect Linux memory
 
-# shmat
+# Small tools
+## [shmat](src/bin/shmat)
 
 Attach shared memory segments to current process
 
-# snap.py
+## [connections](oracle-tools/src/bin/connections.rs)
 
-Take a snapshot of /proc for later inspection
+Establish lots of connections to Oracle database
 
-## Requirements
+## [find_instances](oracle-tools/src/bin/find_instances.rs)
 
-* `tar` => 1.29 is required (it provides the `SEEK_HOLE` and `SEEK_DATA` syscalls)
-* Python 3 is required
-* Kernel (see `man lseek`):        
-  * Btrfs (since Linux 3.1)
-  * OCFS (since Linux 3.2)
-  * XFS (since Linux 3.5)
-  * ext4 (since Linux 3.8)
-  * tmpfs(5) (since Linux 3.8)
-  * NFS (since Linux 3.18)
-  * FUSE (since Linux 4.5)
-  * GFS2 (since Linux 4.15)
+Find Oracle database instances, connect to DB and run some request. Env variables (SID, lib...) and user is found automatically.
 
+# Bigger tools
+## [snap.py](proc_snap/snap.py)
 
-### OEL 7
+/proc snapshot tool
 
-Compiling latest `tar`
+## [procstats2](src/bin/procstats2.rs)
+
+Memory usage for groups of processes. RSS and USS are computed from physical pages allocation, this is not a simple sum of each process.
+
+Groups can be created by user, by environment variable, or by user provided PIDs list
 
 ```
-yum install gcc
-curl -O https://ftp.gnu.org/gnu/tar/tar-1.34.tar.gz
-tar xf tar-1.34.tar.gz
-cd tar-1.34
-FORCE_UNSAFE_CONFIGURE=1 ./configure
-make
-./src/tar --version
+Processes by user:
+user root                      RSS    204 MiB USS    170 MiB
+user gdm                       RSS    361 MiB USS    333 MiB
+user avahi                     RSS      6 MiB USS      1 MiB
+user dbus                      RSS      7 MiB USS      3 MiB
+user rtkit                     RSS      3 MiB USS      0 MiB
+user chrony                    RSS      4 MiB USS      1 MiB
+user libstoragemgmt            RSS      1 MiB USS      0 MiB
+user colord                    RSS     11 MiB USS      2 MiB
+user polkitd                   RSS     26 MiB USS     16 MiB
+user tatref                    RSS   1966 MiB USS   1946 MiB
 ```
 
-Python 3.6
+## [processes2png](src/bin/processes2png.rs)
 
-```
-yum install python36
-```
+Visual map of processes memory
 
-Add the compiled directory to the `$PATH`
+For examples, see [my blog](https://tatref.github.io/blog/2023-visual-linux-memory-compact/)
 
-```
-export PATH=./tar-1.34/src:$PATH
-python3 ./snap.py dump
-```
-
-### OEL 8
-
-TODO
-
-### OEL 9
-
-```
-yum install tar
-```
