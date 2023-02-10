@@ -454,6 +454,7 @@ fn main() {
     let mut splitter = ProcessSplitterByUid::new();
     splitter.split(processes);
     println!("Processes by user:");
+
     for group1 in splitter.iter_groups() {
         let mut other_pfns = HashSet::new();
         for group2 in splitter.iter_groups() {
@@ -508,7 +509,7 @@ fn main() {
             let mut other_pfns = HashSet::new();
             for group2 in splitter.iter_groups() {
                 if group1 != group2 {
-                    let group2_info = processes_group_info(&group2);
+                    let group2_info = processes_group_info(&group2); // TODO: remove from loop
                     other_pfns.extend(group2_info.pfns);
                 }
             }
@@ -523,70 +524,4 @@ fn main() {
         }
         println!();
     }
-
-    panic!("finished");
-    /*
-    let my_processes_group_infos = processes_group_info(&my_pids);
-    let other_processes_group_infos = processes_group_info(&other_pids);
-
-    dbg!(chrono.elapsed());
-
-    // stats
-    let total_rss = my_processes_group_infos.pfns.len() as u64 * page_size;
-    let other_rss = other_processes_group_infos.pfns.len() as u64 * page_size;
-
-    let common_rss = my_processes_group_infos
-        .pfns
-        .intersection(&other_processes_group_infos.pfns)
-        .count() as u64
-        * page_size;
-
-    let total_pte = my_processes_group_infos.pte;
-    let other_pte = other_processes_group_infos.pte;
-
-    let total_fds_size = fd_size * my_processes_group_infos.fds as u64;
-    let total_tasks_size = task_size * my_processes_group_infos.pids.len() as u64;
-
-    let grand_total = total_rss + total_pte + total_fds_size + total_tasks_size;
-
-    println!(
-        "other rss: {}",
-        humansize::format_size(other_rss, humansize::BINARY)
-    );
-
-    println!(
-        "common rss: {}",
-        humansize::format_size(common_rss, humansize::BINARY)
-    );
-
-    println!(
-        "total rss: {}",
-        humansize::format_size(total_rss, humansize::BINARY)
-    );
-
-    println!(
-        "other_pte: {}",
-        humansize::format_size(other_pte * 1024, humansize::BINARY)
-    );
-
-    println!(
-        "total_pte: {}",
-        humansize::format_size(total_pte * 1024, humansize::BINARY)
-    );
-
-    println!(
-        "total_fds_size: {}",
-        humansize::format_size(total_fds_size, humansize::BINARY)
-    );
-
-    println!(
-        "total_task_struct_size: {}",
-        humansize::format_size(total_tasks_size, humansize::BINARY)
-    );
-
-    println!(
-        "Grand total: {}",
-        humansize::format_size(grand_total, humansize::BINARY)
-    );
-    */
 }

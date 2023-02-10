@@ -34,6 +34,8 @@ import socket
 import subprocess
 import time
 from typing import List, Set, Dict, Tuple, Optional, Union, Any
+from ctypes import *
+
 
 profile = False
 if profile:
@@ -143,6 +145,37 @@ def parse_proc_iomem():
         result.append((start, end, name.strip()))
     f.close()
     return result
+
+
+def parse_sysvipc_shm():
+    data = open('/proc/sysvipc/shm').readlines()
+    keys = data[0].split()
+    lines = data[1:]
+
+    shms = []
+    for line in lines:
+        d = {}
+        values = line.split()
+        for (k, v) in zip(keys, values):
+            d[k] = v
+        shms.append(d)
+    return shms
+
+
+def shm_attach(shmid):
+    libc.shmat.restype = c_void_p
+    libc.shmat.argtypes = (c_int, c_void_p, c_int)
+
+    shmid = c_int32(shmid)
+    shmaddr = None
+    flags = 0
+
+    ptr = libc.shmat(shmid, shmaddr, flags)
+    if cast(-1, c_void_p).value == ptr:
+        raise Exception('shmat failed for {}'.format(shmid.value))
+
+    array = cast(ptr, POINTER(c_uint))
+    return array
 
 
 def dump_kpagecount(iomem):
@@ -299,18 +332,6 @@ def test_seek_hole(dump_dir):
 ##                 MAIN                   ##
 ############################################
 
-if sys.version_info[0] < 3:
-    print('ERROR: Requires Python 3')
-    sys.exit(1)
-
-if os.uname().sysname != 'Linux':
-    print('ERROR: Linux only')
-    sys.exit(1)
-
-if not check_tar_version():
-    print('ERROR: require tar >= 1.29 to compress archive')
-    sys.exit(1)
-
 
 
 
@@ -328,7 +349,6 @@ if mode == 'run':
     dump_dir: Path = Path(args.dump_dir)
 verbose = args.verbose
 
-
 if verbose:
     loglevel = logging.DEBUG
 else:
@@ -337,8 +357,23 @@ if sys.version_info < (3, 9):
     logging.basicConfig(level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%I:%M:%S')
 else:
     logging.basicConfig(encoding='utf-8', level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%I:%M:%S')
-
 logging.debug(args)
+
+
+if sys.version_info[0] < 3:
+    print('ERROR: Requires Python 3')
+    sys.exit(1)
+
+if os.uname().sysname != 'Linux':
+    print('ERROR: Linux only')
+    sys.exit(1)
+
+if mode == 'run' and not check_tar_version():
+    logging.error('ERROR: require tar >= 1.29 to compress archive')
+    sys.exit(1)
+
+libc = CDLL('libc.so.6')
+
 
 if mode == 'run':
     logging.info('Tmp path = %s', dump_dir.absolute())
@@ -399,6 +434,22 @@ for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetyp
         logging.debug(e)
 kernel_duration = time.perf_counter() - kernel_chrono
 kernel_duration = datetime.timedelta(seconds=kernel_duration)
+
+# attach to shared memory segments before dumping processes
+shms = parse_sysvipc_shm()
+metadata['shm'] = []
+for shm in shms:
+    size = int(shm['size'])
+    shmid = int(shm['shmid'])
+    try:
+        ptr = shm_attach(shmid)
+
+        metadata['shm'].append({
+            'shmid': shmid,
+            'ptr': ptr,
+        })
+    except Exception as e:
+        logging.warning("Can't attach to shmid {}: {}".format(shmid, e))
 
 
 logging.info('Dumping processes...')
@@ -463,3 +514,4 @@ logging.info('Processes {}'.format(n_procs))
 logging.info('Compression duration: {}'.format(compress_duration))
 logging.info('Statistics: read data: {:.2f} MiB'.format(data_size / 1024 / 1024))
 logging.info('Statistics: estimated disk usage: {:.2f} MiB'.format(data_size * 2 / 1024 / 1024))
+logging.info(str(metadata))
