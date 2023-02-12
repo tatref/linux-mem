@@ -97,7 +97,7 @@ pub const FLAG_NAMES: [&str; 27] = [
 ];
 
 pub fn compute_compound_pages(
-    data: &Vec<(Pfn, u64, PhysicalPageFlags)>,
+    data: &[(Pfn, u64, PhysicalPageFlags)],
 ) -> [u64; FLAG_NAMES.len() + 1] {
     let mut counters = [0u64; FLAG_NAMES.len() + 1];
 
@@ -207,8 +207,7 @@ pub fn shm2pfns(shm: &Shm) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
 
     let map: &MemoryMap = maps
         .iter()
-        .filter(|map| map.address.0 == ptr as u64)
-        .next()
+        .find(|map| map.address.0 == ptr as u64)
         .ok_or("Map not found")?; // return if shared memory is not found
 
     let (start, end) = (
@@ -284,9 +283,8 @@ pub fn get_memory_maps_for_process(
             let index_end = (memory_map.address.1 / page_size) as usize;
 
             // can't scan Vsyscall, so skip it
-            match &memory_map.pathname {
-                MMapPath::Vsyscall => return None,
-                _ => (),
+            if memory_map.pathname == MMapPath::Vsyscall {
+                return None;
             }
 
             let pages = match pagemap.get_range_info(index_start..index_end) {

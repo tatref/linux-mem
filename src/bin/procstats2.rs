@@ -289,7 +289,7 @@ fn get_smon_info(
     sid: &OsStr,
     home: &OsStr,
 ) -> Result<SmonInfo, Box<dyn std::error::Error>> {
-    let myself = std::env::args().nth(0).unwrap();
+    let myself = std::env::args().next().unwrap();
 
     let mut lib = home.to_os_string();
     lib.push("/lib");
@@ -338,7 +338,7 @@ fn get_smon_info(
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    if args.iter().nth(1) == Some(&String::from("get_sga")) {
+    if args.get(1) == Some(&String::from("get_sga")) {
         assert_ne!(users::get_effective_uid(), 0);
 
         // subprogram to connect to instance and print sga size
@@ -429,17 +429,18 @@ fn main() {
     let chrono = std::time::Instant::now();
     let processes: Vec<ProcessInfo> = procfs::process::all_processes()
         .unwrap()
-        .into_iter()
         .filter_map(|proc| proc.ok())
         .filter_map(|process| get_info(process).ok())
         .collect();
-    dbg!(chrono.elapsed());
+    println!("Scanned processes: {:?}", chrono.elapsed());
 
     users::get_current_uid();
 
-    let mut splitter = ProcessSplitterByUid::new();
+    println!();
 
+    let mut splitter = ProcessSplitterByUid::new();
     {
+        let chrono = std::time::Instant::now();
         splitter.split(processes);
         println!("Processes by user:");
         for group_1 in splitter.iter_groups() {
@@ -456,6 +457,7 @@ fn main() {
 
             println!("{:<30} RSS {:>6} MiB USS {:>6} MiB", group_1.name, rss, uss);
         }
+        println!("Split by uid: {:?}", chrono.elapsed());
         println!();
     }
 
@@ -465,6 +467,7 @@ fn main() {
     let mut splitter = ProcessSplitterByEnvVariable::new("ORACLE_SID");
     println!("Processes by env variable 'ORACLE_SID'");
     {
+        let chrono = std::time::Instant::now();
         splitter.split(processes);
         for group1_info in splitter.iter_groups() {
             let mut other_pfns = HashSet::new();
@@ -484,6 +487,7 @@ fn main() {
                 group1_info.name, rss, uss
             );
         }
+        println!("Split by uid: {:?}", chrono.elapsed());
         println!();
     }
 
@@ -494,6 +498,7 @@ fn main() {
         if !pids.is_empty() {
             let mut splitter = ProcessSplitterByPids::new(&pids);
             println!("Processes by PIDs");
+            let chrono = std::time::Instant::now();
             splitter.split(processes);
             for group_1 in splitter.iter_groups() {
                 let mut other_pfns = HashSet::new();
@@ -510,6 +515,7 @@ fn main() {
 
                 println!("{}\nRSS {:>6} MiB USS {:>6} MiB", group_1.name, rss, uss);
             }
+            println!("Split by uid: {:?}", chrono.elapsed());
             println!();
         }
     }
