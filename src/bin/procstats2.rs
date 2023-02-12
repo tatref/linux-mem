@@ -3,7 +3,6 @@
 #![feature(drain_filter)]
 
 // TODO:
-// - replace Vec<Process> by Vec<ProcessInfo>
 // - remove unwraps
 //
 
@@ -30,11 +29,18 @@ struct ProcessInfo {
 }
 
 struct ProcessGroupInfo {
-    pids: Vec<i32>,
+    name: String,
+    processes_info: Vec<ProcessInfo>,
     pfns: HashSet<Pfn>,
     swap_pages: HashSet<(u64, u64)>,
     pte: u64,
     fds: usize,
+}
+
+impl PartialEq for ProcessGroupInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
 }
 
 struct SmonInfo {
@@ -107,18 +113,8 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
     })
 }
 
-struct ProcessGroup {
-    name: String,
-    processes: Vec<ProcessInfo>,
-}
-impl PartialEq for ProcessGroup {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
-}
-
 trait ProcessSplitter<'a> {
-    type GroupIter<'b: 'a>: Iterator<Item = &'a ProcessGroup>
+    type GroupIter<'b: 'a>: Iterator<Item = &'a ProcessGroupInfo>
     where
         Self: 'b;
     fn split(&mut self, processes: Vec<ProcessInfo>);
@@ -128,7 +124,7 @@ trait ProcessSplitter<'a> {
 
 struct ProcessSplitterByEnvVariable {
     var: OsString,
-    groups: HashMap<Option<OsString>, ProcessGroup>,
+    groups: HashMap<Option<OsString>, ProcessGroupInfo>,
 }
 impl ProcessSplitterByEnvVariable {
     fn new<S: AsRef<OsStr>>(var: S) -> Self {
@@ -140,7 +136,8 @@ impl ProcessSplitterByEnvVariable {
 }
 
 impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
-    type GroupIter<'b: 'a> = std::collections::hash_map::Values<'a, Option<OsString>, ProcessGroup>;
+    type GroupIter<'b: 'a> =
+        std::collections::hash_map::Values<'a, Option<OsString>, ProcessGroupInfo>;
 
     fn split(&mut self, mut processes: Vec<ProcessInfo>) {
         let sids: HashSet<Option<OsString>> = processes
@@ -148,7 +145,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
             .filter_map(|p| p.process.environ().map(|x| x.get(&self.var).cloned()).ok())
             .collect();
 
-        let mut groups = HashMap::new();
+        let mut groups: HashMap<Option<OsString>, ProcessGroupInfo> = HashMap::new();
         for sid in sids {
             let some_processes: Vec<ProcessInfo> = processes
                 .drain_filter(|p| match p.process.environ().ok() {
@@ -156,11 +153,9 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
                     None => false,
                 })
                 .collect();
-            let process_group = ProcessGroup {
-                name: format!("{:?}={:?}", self.var, sid),
-                processes: some_processes,
-            };
-            groups.insert(sid, process_group);
+            let name = format!("{:?}={:?}", self.var, sid);
+            let process_group_info = processes_group_info(some_processes, name);
+            groups.insert(sid, process_group_info);
         }
         self.groups = groups;
     }
@@ -170,13 +165,13 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
     fn collect_processes(self) -> Vec<ProcessInfo> {
         self.groups
             .into_values()
-            .flat_map(|group| group.processes)
+            .flat_map(|group| group.processes_info)
             .collect()
     }
 }
 struct ProcessSplitterByPids {
     pids: Vec<i32>,
-    groups: BTreeMap<u8, ProcessGroup>,
+    groups: BTreeMap<u8, ProcessGroupInfo>,
 }
 
 impl ProcessSplitterByPids {
@@ -188,32 +183,26 @@ impl ProcessSplitterByPids {
     }
 }
 impl<'a> ProcessSplitter<'a> for ProcessSplitterByPids {
-    type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u8, ProcessGroup>;
+    type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u8, ProcessGroupInfo>;
     fn split(&mut self, processes: Vec<ProcessInfo>) {
-        self.groups.insert(
-            0,
-            ProcessGroup {
-                name: self.pids.iter().map(|pid| pid.to_string()).join(", "),
-                processes: Vec::new(),
-            },
-        );
-        self.groups.insert(
-            1,
-            ProcessGroup {
-                name: "Others PIDs".into(),
-                processes: Vec::new(),
-            },
-        );
+        let mut processes_info_0 = Vec::new();
+        let mut processes_info_1 = Vec::new();
 
         for p in processes {
             if self.pids.contains(&p.process.pid) {
-                let group = self.groups.get_mut(&0).unwrap();
-                group.processes.push(p);
+                processes_info_0.push(p);
             } else {
-                let group = self.groups.get_mut(&1).unwrap();
-                group.processes.push(p);
+                processes_info_1.push(p);
             }
         }
+
+        let name_0 = self.pids.iter().map(|pid| pid.to_string()).join(", ");
+        let name_1 = "Others PIDs".into();
+        let process_group_info_0 = processes_group_info(processes_info_0, name_0);
+        let process_group_info_1 = processes_group_info(processes_info_1, name_1);
+
+        self.groups.insert(0, process_group_info_0);
+        self.groups.insert(1, process_group_info_1);
     }
     fn iter_groups<'x>(&'a self) -> Self::GroupIter<'a> {
         self.groups.values()
@@ -221,12 +210,12 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByPids {
     fn collect_processes(self) -> Vec<ProcessInfo> {
         self.groups
             .into_values()
-            .flat_map(|group| group.processes)
+            .flat_map(|group| group.processes_info)
             .collect()
     }
 }
 struct ProcessSplitterByUid {
-    groups: BTreeMap<u32, ProcessGroup>,
+    groups: BTreeMap<u32, ProcessGroupInfo>,
 }
 
 impl ProcessSplitterByUid {
@@ -237,9 +226,9 @@ impl ProcessSplitterByUid {
     }
 }
 impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
-    type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u32, ProcessGroup>;
-    fn split(&mut self, mut processes: Vec<ProcessInfo>) {
-        let uids: HashSet<u32> = processes
+    type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u32, ProcessGroupInfo>;
+    fn split(&mut self, mut processes_info: Vec<ProcessInfo>) {
+        let uids: HashSet<u32> = processes_info
             .iter()
             .filter_map(|p| p.process.uid().ok())
             .collect();
@@ -250,14 +239,12 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
                 Some(username) => username.name().to_string_lossy().to_string(),
                 None => format!("{uid}"),
             };
-            let some_processes: Vec<ProcessInfo> = processes
+            let processes_info: Vec<ProcessInfo> = processes_info
                 .drain_filter(|p| p.process.uid().ok() == Some(uid))
                 .collect();
-            let process_group = ProcessGroup {
-                name: format!("user {}", username),
-                processes: some_processes,
-            };
-            self.groups.insert(uid, process_group);
+            let name = format!("user {}", username);
+            let group_info = processes_group_info(processes_info, name);
+            self.groups.insert(uid, group_info);
         }
     }
     fn iter_groups<'x>(&'a self) -> Self::GroupIter<'a> {
@@ -266,20 +253,18 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
     fn collect_processes(self) -> Vec<ProcessInfo> {
         self.groups
             .into_values()
-            .flat_map(|group| group.processes)
+            .flat_map(|group| group.processes_info)
             .collect()
     }
 }
 
-fn processes_group_info(group: &ProcessGroup) -> ProcessGroupInfo {
-    let mut pids = Vec::new();
+fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> ProcessGroupInfo {
     let mut pfns = HashSet::new();
     let mut swap_pages = HashSet::new();
     let mut pte = 0;
     let mut fds = 0;
 
-    for process_info in group.processes.iter() {
-        pids.push(process_info.process.pid);
+    for process_info in &processes_info {
         pfns.extend(&process_info.pfns);
         swap_pages.extend(&process_info.swap_pages);
         pte += process_info.pte;
@@ -287,7 +272,8 @@ fn processes_group_info(group: &ProcessGroup) -> ProcessGroupInfo {
     }
 
     ProcessGroupInfo {
-        pids,
+        name,
+        processes_info,
         pfns,
         swap_pages,
         pte,
@@ -452,76 +438,79 @@ fn main() {
     users::get_current_uid();
 
     let mut splitter = ProcessSplitterByUid::new();
-    splitter.split(processes);
-    println!("Processes by user:");
 
-    for group1 in splitter.iter_groups() {
-        let mut other_pfns = HashSet::new();
-        for group2 in splitter.iter_groups() {
-            if group1 != group2 {
-                let group2_info = processes_group_info(&group2);
-                other_pfns.extend(group2_info.pfns);
+    {
+        splitter.split(processes);
+        println!("Processes by user:");
+        for group_1 in splitter.iter_groups() {
+            let mut other_pfns = HashSet::new();
+            for group_2 in splitter.iter_groups() {
+                if group_1 != group_2 {
+                    other_pfns.extend(&group_2.pfns);
+                }
             }
+
+            let pfns = group_1.pfns.len();
+            let rss = group_1.pfns.len() as u64 * page_size / 1024 / 1024;
+            let uss = group_1.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
+
+            println!("{:<30} RSS {:>6} MiB USS {:>6} MiB", group_1.name, rss, uss);
         }
-
-        let group1_info = processes_group_info(&group1);
-
-        let pfns = group1_info.pfns.len();
-        let rss = group1_info.pfns.len() as u64 * page_size / 1024 / 1024;
-        let uss = group1_info.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
-
-        println!("{:<30} RSS {:>6} MiB USS {:>6} MiB", group1.name, rss, uss);
+        println!();
     }
-    println!();
 
     // get processes back, consuming `groups`
     let processes: Vec<ProcessInfo> = splitter.collect_processes();
 
     let mut splitter = ProcessSplitterByEnvVariable::new("ORACLE_SID");
     println!("Processes by env variable 'ORACLE_SID'");
-    splitter.split(processes);
-    for group1 in splitter.iter_groups() {
-        let mut other_pfns = HashSet::new();
-        for group2 in splitter.iter_groups() {
-            if group1 != group2 {
-                let group2_info = processes_group_info(&group2);
-                other_pfns.extend(group2_info.pfns);
-            }
-        }
-        let group1_info = processes_group_info(&group1);
-
-        let pfns = group1_info.pfns.len();
-        let rss = group1_info.pfns.len() as u64 * page_size / 1024 / 1024;
-        let uss = group1_info.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
-
-        println!("{:<30} RSS {:>6} MiB USS {:>6} MiB", group1.name, rss, uss);
-    }
-    println!();
-
-    // get processes back, consuming `groups`
-    let processes: Vec<ProcessInfo> = splitter.collect_processes();
-
-    if !pids.is_empty() {
-        let mut splitter = ProcessSplitterByPids::new(&pids);
-        println!("Processes by PIDs");
+    {
         splitter.split(processes);
-        for group1 in splitter.iter_groups() {
+        for group1_info in splitter.iter_groups() {
             let mut other_pfns = HashSet::new();
-            for group2 in splitter.iter_groups() {
-                if group1 != group2 {
-                    let group2_info = processes_group_info(&group2); // TODO: remove from loop
-                    other_pfns.extend(group2_info.pfns);
+            for group2_info in splitter.iter_groups() {
+                if group1_info != group2_info {
+                    other_pfns.extend(&group2_info.pfns);
                 }
             }
-            let group1_info = processes_group_info(&group1);
 
             let pfns = group1_info.pfns.len();
             let rss = group1_info.pfns.len() as u64 * page_size / 1024 / 1024;
             let uss =
                 group1_info.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
 
-            println!("{}\nRSS {:>6} MiB USS {:>6} MiB", group1.name, rss, uss);
+            println!(
+                "{:<30} RSS {:>6} MiB USS {:>6} MiB",
+                group1_info.name, rss, uss
+            );
         }
         println!();
+    }
+
+    // get processes back, consuming `groups`
+    let processes: Vec<ProcessInfo> = splitter.collect_processes();
+
+    {
+        if !pids.is_empty() {
+            let mut splitter = ProcessSplitterByPids::new(&pids);
+            println!("Processes by PIDs");
+            splitter.split(processes);
+            for group_1 in splitter.iter_groups() {
+                let mut other_pfns = HashSet::new();
+                for group_2 in splitter.iter_groups() {
+                    if group_1 != group_2 {
+                        other_pfns.extend(&group_2.pfns);
+                    }
+                }
+
+                let pfns = group_1.pfns.len();
+                let rss = group_1.pfns.len() as u64 * page_size / 1024 / 1024;
+                let uss =
+                    group_1.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
+
+                println!("{}\nRSS {:>6} MiB USS {:>6} MiB", group_1.name, rss, uss);
+            }
+            println!();
+        }
     }
 }
