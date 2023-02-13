@@ -3,7 +3,7 @@
 A toolbox to inspect Linux memory
 
 # Small tools
-## [shmat](src/bin/shmat)
+## [shmat](src/bin/shmat.rs)
 
 Attach shared memory segments to current process
 
