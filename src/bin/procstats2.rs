@@ -20,6 +20,8 @@ use std::{
 
 struct ProcessInfo {
     process: Process,
+    uid: u32,
+    environ: HashMap<OsString, OsString>,
     pfns: HashSet<Pfn>,
     swap_pages: HashSet<(u64, u64)>,
     rss: u64,
@@ -102,8 +104,13 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
         }
     } // end for memory_maps
 
+    let uid = process.uid()?;
+    let env = process.environ()?;
+
     Ok(ProcessInfo {
         process,
+        uid,
+        environ: env,
         pfns,
         swap_pages,
         rss,
@@ -142,16 +149,13 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
     fn split(&mut self, mut processes: Vec<ProcessInfo>) {
         let sids: HashSet<Option<OsString>> = processes
             .iter()
-            .filter_map(|p| p.process.environ().map(|x| x.get(&self.var).cloned()).ok())
+            .map(|p| p.environ.get(&self.var).cloned())
             .collect();
 
         let mut groups: HashMap<Option<OsString>, ProcessGroupInfo> = HashMap::new();
         for sid in sids {
             let some_processes: Vec<ProcessInfo> = processes
-                .drain_filter(|p| match p.process.environ().ok() {
-                    Some(env) => env.get(&self.var) == sid.as_ref(),
-                    None => false,
-                })
+                .drain_filter(|p| p.environ.get(&self.var) == sid.as_ref())
                 .collect();
             let name = format!("{:?}={:?}", self.var, sid);
             let process_group_info = processes_group_info(some_processes, name);
@@ -228,10 +232,7 @@ impl ProcessSplitterByUid {
 impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
     type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u32, ProcessGroupInfo>;
     fn split(&mut self, mut processes_info: Vec<ProcessInfo>) {
-        let uids: HashSet<u32> = processes_info
-            .iter()
-            .filter_map(|p| p.process.uid().ok())
-            .collect();
+        let uids: HashSet<u32> = processes_info.iter().map(|p| p.uid).collect();
 
         for uid in uids {
             let username = users::get_user_by_uid(uid);
@@ -239,9 +240,8 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
                 Some(username) => username.name().to_string_lossy().to_string(),
                 None => format!("{uid}"),
             };
-            let processes_info: Vec<ProcessInfo> = processes_info
-                .drain_filter(|p| p.process.uid().ok() == Some(uid))
-                .collect();
+            let processes_info: Vec<ProcessInfo> =
+                processes_info.drain_filter(|p| p.uid == uid).collect();
             let name = format!("user {}", username);
             let group_info = processes_group_info(processes_info, name);
             self.groups.insert(uid, group_info);
@@ -426,10 +426,13 @@ fn main() {
         .flatten()
         .collect();
 
+    let my_pid = std::process::id();
+
     let chrono = std::time::Instant::now();
     let processes: Vec<ProcessInfo> = procfs::process::all_processes()
         .unwrap()
         .filter_map(|proc| proc.ok())
+        .filter(|p| p.pid as u32 != my_pid)
         .filter_map(|process| get_info(process).ok())
         .collect();
     println!("Scanned processes: {:?}", chrono.elapsed());
@@ -515,7 +518,7 @@ fn main() {
 
                 println!("{}\nRSS {:>6} MiB USS {:>6} MiB", group_1.name, rss, uss);
             }
-            println!("Split by uid: {:?}", chrono.elapsed());
+            println!("Split by env variable: {:?}", chrono.elapsed());
             println!();
         }
     }
