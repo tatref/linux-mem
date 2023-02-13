@@ -14,6 +14,7 @@ use procfs::{
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
+    io::{stdout, Write},
     os::unix::process::CommandExt,
     process::Command,
 };
@@ -374,10 +375,16 @@ fn main() {
     if !instances.is_empty() {
         println!("Oracle instances:");
         for instance in &instances {
-            println!("{:?} sga={}B", instance.sid, instance.sga_size);
+            println!(
+                "{:?} sga={} GiB",
+                instance.sid,
+                instance.sga_size / 1024 / 1024 / 1024
+            );
         }
+        println!();
+    } else {
+        println!("Can't locate any Oracle instance");
     }
-    println!();
 
     let page_size = procfs::page_size();
 
@@ -386,6 +393,16 @@ fn main() {
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
         let pfns = snap::shm2pfns(&shm).unwrap();
         shm_pfns.insert((shm.key, shm.shmid), pfns);
+    }
+
+    if !shm_pfns.is_empty() {
+        println!("Shared memory segments:");
+        for ((shm_key, shm_id), pfns) in &shm_pfns {
+            println!("{shm_key} {shm_id}: {} PFNs", pfns.len());
+        }
+        println!();
+    } else {
+        println!("Can't locate any shared memory segment")
     }
 
     // probably incorrect?
@@ -428,23 +445,46 @@ fn main() {
 
     let my_pid = std::process::id();
 
+    println!("Scanning processes...");
     let chrono = std::time::Instant::now();
-    let processes: Vec<ProcessInfo> = procfs::process::all_processes()
-        .unwrap()
-        .filter_map(|proc| proc.ok())
-        .filter(|p| p.pid as u32 != my_pid)
-        .filter_map(|process| get_info(process).ok())
-        .collect();
-    println!("Scanned processes: {:?}", chrono.elapsed());
+    let all_processes: Vec<_> = procfs::process::all_processes().unwrap().collect();
+    let processes_count = all_processes.len();
+    let mut processes_info = Vec::new();
+    for (idx, proc) in all_processes.into_iter().enumerate() {
+        if idx % 100 == 0 {
+            print!("{}/{}\r", idx, processes_count);
+            let _ = stdout().lock().flush();
+        }
+        let Ok(proc) = proc else {continue;};
+        if proc.pid as u32 != my_pid {
+            let Ok(info) = get_info(proc) else {continue;};
+            processes_info.push(info);
+        }
+    }
+    println!();
+    println!(
+        "Scanned {} processes in {:?}",
+        processes_info.len(),
+        chrono.elapsed()
+    );
 
-    users::get_current_uid();
+    let total_pfns = processes_info
+        .iter()
+        .map(|info| info.pfns.len())
+        .sum::<usize>();
+    let max_pfns = processes_info
+        .iter()
+        .map(|info| info.pfns.len())
+        .max()
+        .unwrap();
+    println!("Total PFNs: {total_pfns}");
+    println!("Max PFNs: {max_pfns}");
 
     println!();
-
     let mut splitter = ProcessSplitterByUid::new();
     {
         let chrono = std::time::Instant::now();
-        splitter.split(processes);
+        splitter.split(processes_info);
         println!("Processes by user:");
         for group_1 in splitter.iter_groups() {
             let mut other_pfns = HashSet::new();
