@@ -15,12 +15,16 @@ Establish lots of connections to Oracle database
 
 Find Oracle database instances, connect to DB and run some request. Env variables (SID, lib...) and user is found automatically.
 
+## [procinfo](src/bin/procinfo.rs)
+
+Memory map details for single process
+
 # Bigger tools
 ## [snap.py](proc_snap/snap.py)
 
 /proc snapshot tool
 
-## [procstats2](src/bin/procstats2.rs)
+## [groupstats](src/bin/groupstats.rs)
 
 Memory usage for groups of processes. RSS and USS are computed from physical pages allocation, this is not a simple sum of each process.
 
