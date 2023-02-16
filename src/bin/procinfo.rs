@@ -8,21 +8,18 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
         return Err(String::from("No info for kernel process"))?;
     }
 
-    let page_size = procfs::page_size();
-
-    // size of pages in memory
-    let mut rss = 0;
-    // size of mappings
-    let mut vsz = 0;
+    let mut total_rss = 0;
+    let mut total_vsz = 0;
+    let mut total_swap = 0;
 
     // page table size
-    let pte = process
+    let _pte = process
         .status()?
         .vmpte
         .expect("'vmpte' field does not exist");
 
     // file descriptors
-    let fds = process.fd_count()?;
+    let _fds = process.fd_count()?;
 
     let memory_maps = snap::get_memory_maps_for_process(&process)?;
 
@@ -37,14 +34,11 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
             memory_map.address.0, memory_map.address.1, memory_map.perms, memory_map.pathname,
         );
 
-        vsz += memory_map.address.1 - memory_map.address.0;
-
         for page in pages.iter() {
             match page {
                 PageInfo::MemoryPage(memory_page) => {
                     let pfn = memory_page.get_page_frame_number();
                     if pfn.0 != 0 {
-                        rss += page_size;
                         println!("PFN=0x{pfn:010x} {memory_page:?}");
                     }
                     pfns.push(pfn);
@@ -65,7 +59,13 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
         let swap = swap_pages.len() * 4;
 
         println!("Stats: VSZ={vsz} kiB, RSS={rss} kiB, SWAP={swap} kiB");
+
+        total_rss += rss;
+        total_swap += swap;
+        total_vsz += vsz;
     } // end for memory_maps
+
+    println!("Total: VSZ={total_vsz} kiB, RSS={total_rss} kiB, SWAP={total_swap} kiB");
 
     Ok(())
 }
@@ -79,8 +79,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| s.parse().expect("PID arg must be a number"))
         .collect();
     let pid = pids[0];
-
-    let page_size = procfs::page_size();
 
     // shm (key, id) -> PFNs
     let mut shm_pfns: HashMap<(i32, u64), HashSet<Pfn>> = HashMap::new();
