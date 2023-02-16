@@ -40,8 +40,8 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
                     let pfn = memory_page.get_page_frame_number();
                     if pfn.0 != 0 {
                         println!("PFN=0x{pfn:010x} {memory_page:?}");
+                        pfns.push(pfn);
                     }
-                    pfns.push(pfn);
                 }
                 PageInfo::SwapPage(swap_page) => {
                     let swap_type = swap_page.get_swap_type();
