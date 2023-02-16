@@ -58,14 +58,14 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
         let rss = pfns.len() * 4;
         let swap = swap_pages.len() * 4;
 
-        println!("Stats: VSZ={vsz} kiB, RSS={rss} kiB, SWAP={swap} kiB");
+        println!("stats: VSZ={vsz} kiB, RSS={rss} kiB, SWAP={swap} kiB");
 
         total_rss += rss;
         total_swap += swap;
         total_vsz += vsz;
     } // end for memory_maps
 
-    println!("Total: VSZ={total_vsz} kiB, RSS={total_rss} kiB, SWAP={total_swap} kiB");
+    println!("total stats: VSZ={total_vsz} kiB, RSS={total_rss} kiB, SWAP={total_swap} kiB");
 
     Ok(())
 }
