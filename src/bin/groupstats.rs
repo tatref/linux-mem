@@ -376,9 +376,9 @@ fn main() {
         println!("Oracle instances:");
         for instance in &instances {
             println!(
-                "{:?} sga={} GiB",
+                "{:?} sga={} MiB",
                 instance.sid,
-                instance.sga_size / 1024 / 1024 / 1024
+                instance.sga_size / 1024 / 1024
             );
         }
         println!();
