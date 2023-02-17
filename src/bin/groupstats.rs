@@ -19,11 +19,13 @@ use std::{
     process::Command,
 };
 
+type PfnHashSet = HashSet<Pfn>;
+
 struct ProcessInfo {
     process: Process,
     uid: u32,
     environ: HashMap<OsString, OsString>,
-    pfns: HashSet<Pfn>,
+    pfns: PfnHashSet,
     swap_pages: HashSet<(u64, u64)>,
     rss: u64,
     vsz: u64,
@@ -34,7 +36,7 @@ struct ProcessInfo {
 struct ProcessGroupInfo {
     name: String,
     processes_info: Vec<ProcessInfo>,
-    pfns: HashSet<Pfn>,
+    pfns: PfnHashSet,
     swap_pages: HashSet<(u64, u64)>,
     pte: u64,
     fds: usize,
@@ -63,7 +65,7 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
     let page_size = procfs::page_size();
 
     // physical memory pages
-    let mut pfns: HashSet<Pfn> = HashSet::new();
+    let mut pfns: PfnHashSet = HashSet::new();
     // swap type, offset
     let mut swap_pages: HashSet<(u64, u64)> = HashSet::new();
 
