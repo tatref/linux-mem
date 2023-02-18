@@ -400,7 +400,7 @@ fn main() {
     if !shm_pfns.is_empty() {
         println!("Shared memory segments:");
         for ((shm_key, shm_id), pfns) in &shm_pfns {
-            println!("{shm_key} {shm_id}: {} PFNs", pfns.len());
+            println!("{shm_key:>10} {shm_id}: {} PFNs", pfns.len());
         }
         println!();
     } else {
@@ -453,7 +453,7 @@ fn main() {
     let processes_count = all_processes.len();
     let mut processes_info = Vec::new();
     for (idx, proc) in all_processes.into_iter().enumerate() {
-        if idx % 100 == 0 {
+        if idx % 10 == 0 {
             print!("{}/{}\r", idx, processes_count);
             let _ = stdout().lock().flush();
         }
