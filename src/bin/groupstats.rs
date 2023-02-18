@@ -124,12 +124,38 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
 }
 
 trait ProcessSplitter<'a> {
+    fn name(&self) -> String;
     type GroupIter<'b: 'a>: Iterator<Item = &'a ProcessGroupInfo>
     where
         Self: 'b;
     fn split(&mut self, processes: Vec<ProcessInfo>);
     fn iter_groups<'b>(&'b self) -> Self::GroupIter<'b>;
     fn collect_processes(self) -> Vec<ProcessInfo>;
+
+    fn display(&'a self) {
+        let chrono = std::time::Instant::now();
+        println!("Process groups by {}", self.name());
+        println!("{:<30} {:>6} MiB {:>6} MiB", "group_name", "RSS", "USS");
+        println!("====================================================");
+        for group_1 in self.iter_groups() {
+            let mut other_pfns = HashSet::new();
+            for group_2 in self.iter_groups() {
+                if group_1 != group_2 {
+                    other_pfns.extend(&group_2.pfns);
+                }
+            }
+
+            let pfns = group_1.pfns.len();
+            let rss = group_1.pfns.len() as u64 * procfs::page_size() / 1024 / 1024;
+            let uss = group_1.pfns.difference(&other_pfns).count() as u64 * procfs::page_size()
+                / 1024
+                / 1024;
+
+            println!("{:<30} {:>10} {:>10}", group_1.name, rss, uss);
+        }
+        println!("\nSplit by {}: {:?}", self.name(), chrono.elapsed());
+        println!();
+    }
 }
 
 struct ProcessSplitterByEnvVariable {
@@ -149,6 +175,9 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
     type GroupIter<'b: 'a> =
         std::collections::hash_map::Values<'a, Option<OsString>, ProcessGroupInfo>;
 
+    fn name(&self) -> String {
+        format!("environment variable {}", self.var.to_string_lossy())
+    }
     fn split(&mut self, mut processes: Vec<ProcessInfo>) {
         let sids: HashSet<Option<OsString>> = processes
             .iter()
@@ -160,7 +189,11 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
             let some_processes: Vec<ProcessInfo> = processes
                 .drain_filter(|p| p.environ.get(&self.var) == sid.as_ref())
                 .collect();
-            let name = format!("{:?}={:?}", self.var, sid);
+            let name = format!(
+                "{}={:?}",
+                self.var.to_string_lossy(),
+                sid.as_ref().map(|os| os.to_string_lossy().to_string())
+            );
             let process_group_info = processes_group_info(some_processes, name);
             groups.insert(sid, process_group_info);
         }
@@ -191,6 +224,10 @@ impl ProcessSplitterByPids {
 }
 impl<'a> ProcessSplitter<'a> for ProcessSplitterByPids {
     type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u8, ProcessGroupInfo>;
+
+    fn name(&self) -> String {
+        format!("PID list")
+    }
     fn split(&mut self, processes: Vec<ProcessInfo>) {
         let mut processes_info_0 = Vec::new();
         let mut processes_info_1 = Vec::new();
@@ -234,6 +271,10 @@ impl ProcessSplitterByUid {
 }
 impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
     type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u32, ProcessGroupInfo>;
+
+    fn name(&self) -> String {
+        format!("UID")
+    }
     fn split(&mut self, mut processes_info: Vec<ProcessInfo>) {
         let uids: HashSet<u32> = processes_info.iter().map(|p| p.uid).collect();
 
@@ -245,8 +286,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
             };
             let processes_info: Vec<ProcessInfo> =
                 processes_info.drain_filter(|p| p.uid == uid).collect();
-            let name = format!("user {}", username);
-            let group_info = processes_group_info(processes_info, name);
+            let group_info = processes_group_info(processes_info, username);
             self.groups.insert(uid, group_info);
         }
     }
@@ -378,8 +418,8 @@ fn main() {
         println!("Oracle instances:");
         for instance in &instances {
             println!(
-                "{:?} sga={} MiB",
-                instance.sid,
+                "{} sga={} MiB",
+                instance.sid.to_string_lossy(),
                 instance.sga_size / 1024 / 1024
             );
         }
@@ -399,8 +439,16 @@ fn main() {
 
     if !shm_pfns.is_empty() {
         println!("Shared memory segments:");
+        println!(
+            "{:>12} {}: {} PFNs, {:>10}",
+            "key", "id", "# PFNs", "RSS (MiB)"
+        );
         for ((shm_key, shm_id), pfns) in &shm_pfns {
-            println!("{shm_key:>10} {shm_id}: {} PFNs", pfns.len());
+            println!(
+                "{shm_key:>12} {shm_id}: {} PFNs, {:>10} MB",
+                pfns.len(),
+                pfns.len() * page_size as usize / 1024 / 1024
+            );
         }
         println!();
     } else {
@@ -481,87 +529,21 @@ fn main() {
         .unwrap();
     println!("Total PFNs: {total_pfns}");
     println!("Max PFNs: {max_pfns}");
-
     println!();
+
     let mut splitter = ProcessSplitterByUid::new();
-    {
-        let chrono = std::time::Instant::now();
-        splitter.split(processes_info);
-        println!("Processes by user:");
-        for group_1 in splitter.iter_groups() {
-            let mut other_pfns = HashSet::new();
-            for group_2 in splitter.iter_groups() {
-                if group_1 != group_2 {
-                    other_pfns.extend(&group_2.pfns);
-                }
-            }
-
-            let pfns = group_1.pfns.len();
-            let rss = group_1.pfns.len() as u64 * page_size / 1024 / 1024;
-            let uss = group_1.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
-
-            println!("{:<30} RSS {:>6} MiB USS {:>6} MiB", group_1.name, rss, uss);
-        }
-        println!("Split by uid: {:?}", chrono.elapsed());
-        println!();
-    }
-
-    // get processes back, consuming `groups`
+    splitter.split(processes_info);
+    splitter.display();
     let processes: Vec<ProcessInfo> = splitter.collect_processes();
 
     let mut splitter = ProcessSplitterByEnvVariable::new("ORACLE_SID");
-    println!("Processes by env variable 'ORACLE_SID'");
-    {
-        let chrono = std::time::Instant::now();
-        splitter.split(processes);
-        for group1_info in splitter.iter_groups() {
-            let mut other_pfns = HashSet::new();
-            for group2_info in splitter.iter_groups() {
-                if group1_info != group2_info {
-                    other_pfns.extend(&group2_info.pfns);
-                }
-            }
-
-            let pfns = group1_info.pfns.len();
-            let rss = group1_info.pfns.len() as u64 * page_size / 1024 / 1024;
-            let uss =
-                group1_info.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
-
-            println!(
-                "{:<30} RSS {:>6} MiB USS {:>6} MiB",
-                group1_info.name, rss, uss
-            );
-        }
-        println!("Split by uid: {:?}", chrono.elapsed());
-        println!();
-    }
-
-    // get processes back, consuming `groups`
+    splitter.split(processes);
+    splitter.display();
     let processes: Vec<ProcessInfo> = splitter.collect_processes();
 
-    {
-        if !pids.is_empty() {
-            let mut splitter = ProcessSplitterByPids::new(&pids);
-            println!("Processes by PIDs");
-            let chrono = std::time::Instant::now();
-            splitter.split(processes);
-            for group_1 in splitter.iter_groups() {
-                let mut other_pfns = HashSet::new();
-                for group_2 in splitter.iter_groups() {
-                    if group_1 != group_2 {
-                        other_pfns.extend(&group_2.pfns);
-                    }
-                }
-
-                let pfns = group_1.pfns.len();
-                let rss = group_1.pfns.len() as u64 * page_size / 1024 / 1024;
-                let uss =
-                    group_1.pfns.difference(&other_pfns).count() as u64 * page_size / 1024 / 1024;
-
-                println!("{}\nRSS {:>6} MiB USS {:>6} MiB", group_1.name, rss, uss);
-            }
-            println!("Split by env variable: {:?}", chrono.elapsed());
-            println!();
-        }
+    if !pids.is_empty() {
+        let mut splitter = ProcessSplitterByPids::new(&pids);
+        splitter.split(processes);
+        splitter.display();
     }
 }
