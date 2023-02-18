@@ -416,9 +416,11 @@ fn main() {
 
     if !instances.is_empty() {
         println!("Oracle instances:");
+        println!("SID               SGA MiB");
+        println!("==========================");
         for instance in &instances {
             println!(
-                "{} sga={} MiB",
+                "{:<12} {:>12}",
                 instance.sid.to_string_lossy(),
                 instance.sga_size / 1024 / 1024
             );
