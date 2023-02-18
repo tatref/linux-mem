@@ -9,6 +9,8 @@ edition = "2018"
 
 [profile.release]
 debug = 1
+lto = true
+codegen-units = 1
 
 [dependencies]
 clap = "4.0.29"
