@@ -441,11 +441,11 @@ fn main() {
 
     if !shm_pfns.is_empty() {
         println!("Shared memory segments:");
-        println!("key          id           PFNs        RSS MiB",);
+        println!("      key           id       PFNs    RSS MiB",);
         println!("=============================================",);
         for ((shm_key, shm_id), pfns) in &shm_pfns {
             println!(
-                "{shm_key:>12} {shm_id:>12}: {:>10} {:>10}",
+                "{shm_key:>12} {shm_id:>12} {:>10} {:>10}",
                 pfns.len(),
                 pfns.len() * page_size as usize / 1024 / 1024
             );
