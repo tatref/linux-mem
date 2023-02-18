@@ -9,8 +9,8 @@ edition = "2018"
 
 [profile.release]
 debug = 1
-lto = true
-codegen-units = 1
+#lto = true
+#codegen-units = 1
 
 [dependencies]
 clap = "4.0.29"
@@ -23,7 +23,7 @@ tar = "0.4.37"
 
 libc = "0.2.133"
 
-procfs = { git = "https://github.com/eminence/procfs", branch = "master" }
+procfs = { git = "https://github.com/tatref/procfs", branch = "tatref" }
 
 #egui = "0.20.0"
 image = { version = "0.24.5", default_features = false, features = ["png"] }

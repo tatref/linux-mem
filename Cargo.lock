@@ -873,8 +873,8 @@ dependencies = [
 
 [[package]]
 name = "procfs"
-version = "0.15.0"
-source = "git+https://github.com/eminence/procfs?branch=master#6c6ddbd42e71748157d29062ac4d721fa5176b2a"
+version = "0.15.1"
+source = "git+https://github.com/tatref/procfs?branch=tatref#0c2d77ff48252b7b8661ad0b2132e80311f2cbb1"
 dependencies = [
  "bitflags",
  "byteorder",

@@ -3,13 +3,19 @@
 #![feature(drain_filter)]
 
 // TODO:
+// - args for splits
+//   - oracle: --oracle
+//   - shm: --shm
+//   - uid: --uid
+//   - pids: --pids 1 2 3
+//   - env: --env ORACLE_SID
+// - filters
 // - remove unwraps
-//
 
 use itertools::Itertools;
 use procfs::{
     process::{PageInfo, Pfn, Process},
-    PhysicalPageFlags,
+    PhysicalPageFlags, Shm,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -21,6 +27,13 @@ use std::{
 
 type PfnHashSet = HashSet<Pfn>;
 
+#[derive(Eq, PartialEq, Hash)]
+struct ShmMetadata {
+    size: u64,
+    first_page: PageInfo,
+    last_page: PageInfo,
+}
+
 struct ProcessInfo {
     process: Process,
     uid: u32,
@@ -31,6 +44,7 @@ struct ProcessInfo {
     vsz: u64,
     pte: u64,
     fds: usize,
+    shm_metadatas: HashSet<ShmMetadata>,
 }
 
 struct ProcessGroupInfo {
@@ -84,24 +98,38 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
     let fds = process.fd_count()?;
 
     let memory_maps = snap::get_memory_maps_for_process(&process)?;
+    let mut shm_metadatas = HashSet::new();
 
     for (memory_map, pages) in memory_maps.iter() {
-        vsz += memory_map.address.1 - memory_map.address.0;
+        let size = memory_map.address.1 - memory_map.address.0;
+        vsz += size;
 
-        for page in pages.iter() {
-            match page {
-                PageInfo::MemoryPage(memory_page) => {
-                    let pfn = memory_page.get_page_frame_number();
-                    if pfn.0 != 0 {
-                        rss += page_size;
+        if let procfs::process::MMapPath::Vsys(idx) = memory_map.pathname {
+            let size = size;
+            let first_page = *pages.first().unwrap();
+            let last_page = *pages.last().unwrap();
+            let shm_metadata = ShmMetadata {
+                first_page,
+                last_page,
+                size,
+            };
+            shm_metadatas.insert(shm_metadata);
+        } else {
+            for page in pages.iter() {
+                match page {
+                    PageInfo::MemoryPage(memory_page) => {
+                        let pfn = memory_page.get_page_frame_number();
+                        if pfn.0 != 0 {
+                            rss += page_size;
+                        }
+                        pfns.insert(pfn);
                     }
-                    pfns.insert(pfn);
-                }
-                PageInfo::SwapPage(swap_page) => {
-                    let swap_type = swap_page.get_swap_type();
-                    let offset = swap_page.get_swap_offset();
+                    PageInfo::SwapPage(swap_page) => {
+                        let swap_type = swap_page.get_swap_type();
+                        let offset = swap_page.get_swap_offset();
 
-                    swap_pages.insert((swap_type, offset));
+                        swap_pages.insert((swap_type, offset));
+                    }
                 }
             }
         }
@@ -116,6 +144,7 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
         environ: env,
         pfns,
         swap_pages,
+        shm_metadatas,
         rss,
         vsz,
         pte,
@@ -128,7 +157,7 @@ trait ProcessSplitter<'a> {
     type GroupIter<'b: 'a>: Iterator<Item = &'a ProcessGroupInfo>
     where
         Self: 'b;
-    fn split(&mut self, processes: Vec<ProcessInfo>);
+    fn split(&mut self, shms: &HashMap<Shm, HashSet<Pfn>>, processes: Vec<ProcessInfo>);
     fn iter_groups<'b>(&'b self) -> Self::GroupIter<'b>;
     fn collect_processes(self) -> Vec<ProcessInfo>;
 
@@ -145,7 +174,6 @@ trait ProcessSplitter<'a> {
                 }
             }
 
-            let pfns = group_1.pfns.len();
             let rss = group_1.pfns.len() as u64 * procfs::page_size() / 1024 / 1024;
             let uss = group_1.pfns.difference(&other_pfns).count() as u64 * procfs::page_size()
                 / 1024
@@ -178,7 +206,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
     fn name(&self) -> String {
         format!("environment variable {}", self.var.to_string_lossy())
     }
-    fn split(&mut self, mut processes: Vec<ProcessInfo>) {
+    fn split(&mut self, shms: &HashMap<Shm, HashSet<Pfn>>, mut processes: Vec<ProcessInfo>) {
         let sids: HashSet<Option<OsString>> = processes
             .iter()
             .map(|p| p.environ.get(&self.var).cloned())
@@ -194,7 +222,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
                 self.var.to_string_lossy(),
                 sid.as_ref().map(|os| os.to_string_lossy().to_string())
             );
-            let process_group_info = processes_group_info(some_processes, name);
+            let process_group_info = processes_group_info(shms, some_processes, name);
             groups.insert(sid, process_group_info);
         }
         self.groups = groups;
@@ -228,7 +256,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByPids {
     fn name(&self) -> String {
         format!("PID list")
     }
-    fn split(&mut self, processes: Vec<ProcessInfo>) {
+    fn split(&mut self, shms: &HashMap<Shm, HashSet<Pfn>>, processes: Vec<ProcessInfo>) {
         let mut processes_info_0 = Vec::new();
         let mut processes_info_1 = Vec::new();
 
@@ -242,8 +270,8 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByPids {
 
         let name_0 = self.pids.iter().map(|pid| pid.to_string()).join(", ");
         let name_1 = "Others PIDs".into();
-        let process_group_info_0 = processes_group_info(processes_info_0, name_0);
-        let process_group_info_1 = processes_group_info(processes_info_1, name_1);
+        let process_group_info_0 = processes_group_info(shms, processes_info_0, name_0);
+        let process_group_info_1 = processes_group_info(shms, processes_info_1, name_1);
 
         self.groups.insert(0, process_group_info_0);
         self.groups.insert(1, process_group_info_1);
@@ -275,8 +303,8 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
     fn name(&self) -> String {
         format!("UID")
     }
-    fn split(&mut self, mut processes_info: Vec<ProcessInfo>) {
-        let uids: HashSet<u32> = processes_info.iter().map(|p| p.uid).collect();
+    fn split(&mut self, shms: &HashMap<Shm, HashSet<Pfn>>, mut processes: Vec<ProcessInfo>) {
+        let uids: HashSet<u32> = processes.iter().map(|p| p.uid).collect();
 
         for uid in uids {
             let username = users::get_user_by_uid(uid);
@@ -285,8 +313,8 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
                 None => format!("{uid}"),
             };
             let processes_info: Vec<ProcessInfo> =
-                processes_info.drain_filter(|p| p.uid == uid).collect();
-            let group_info = processes_group_info(processes_info, username);
+                processes.drain_filter(|p| p.uid == uid).collect();
+            let group_info = processes_group_info(shms, processes_info, username);
             self.groups.insert(uid, group_info);
         }
     }
@@ -301,18 +329,54 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
     }
 }
 
-fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> ProcessGroupInfo {
+fn processes_group_info(
+    shms: &HashMap<Shm, HashSet<Pfn>>,
+    processes_info: Vec<ProcessInfo>,
+    name: String,
+) -> ProcessGroupInfo {
     let mut pfns = HashSet::new();
     let mut swap_pages = HashSet::new();
     let mut pte = 0;
     let mut fds = 0;
+    let mut shm_metadatas = HashSet::new();
 
     for process_info in &processes_info {
         pfns.extend(&process_info.pfns);
         swap_pages.extend(&process_info.swap_pages);
         pte += process_info.pte;
         fds += process_info.fds;
+        shm_metadatas.extend(&process_info.shm_metadatas);
     }
+
+    let mut tmp_shm_pfns: HashSet<Pfn> = HashSet::new();
+    for shm_metadata in shm_metadatas.iter() {
+        let mut found = false;
+
+        let first = match shm_metadata.first_page {
+            PageInfo::MemoryPage(memory_page) => memory_page.get_page_frame_number(),
+            PageInfo::SwapPage(_) => todo!(),
+        };
+        let last = match shm_metadata.last_page {
+            PageInfo::MemoryPage(memory_page) => memory_page.get_page_frame_number(),
+            PageInfo::SwapPage(_) => todo!(),
+        };
+
+        for (shm, shm_pfns) in shms {
+            if shm_pfns.contains(&first)
+                && shm_pfns.contains(&last)
+                && shm_metadata.size == shm.size
+            {
+                found = true;
+                tmp_shm_pfns.extend(shm_pfns);
+            }
+        }
+
+        if !found {
+            println!("WARNING: can't find shm (size={})", shm_metadata.size);
+        }
+    }
+
+    pfns.extend(tmp_shm_pfns);
 
     ProcessGroupInfo {
         name,
@@ -394,7 +458,9 @@ fn main() {
         std::process::exit(0);
     }
 
-    assert_eq!(users::get_effective_uid(), 0);
+    if users::get_effective_uid() != 0 {
+        panic!("Run as root");
+    }
 
     let pids: Vec<i32> = args
         .iter()
@@ -433,19 +499,21 @@ fn main() {
     let page_size = procfs::page_size();
 
     // shm (key, id) -> PFNs
-    let mut shm_pfns: HashMap<(i32, u64), HashSet<Pfn>> = HashMap::new();
+    let mut shms: HashMap<procfs::Shm, HashSet<Pfn>> = HashMap::new();
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
         let pfns = snap::shm2pfns(&shm).unwrap();
-        shm_pfns.insert((shm.key, shm.shmid), pfns);
+        shms.insert(shm, pfns);
     }
 
-    if !shm_pfns.is_empty() {
+    if !shms.is_empty() {
         println!("Shared memory segments:");
         println!("         key           id       PFNs    RSS MiB",);
         println!("===============================================",);
-        for ((shm_key, shm_id), pfns) in &shm_pfns {
+        for (shm, pfns) in &shms {
             println!(
-                "{shm_key:>12} {shm_id:>12} {:>10} {:>10}",
+                "{:>12} {:>12} {:>10} {:>10}",
+                shm.key,
+                shm.shmid,
                 pfns.len(),
                 pfns.len() * page_size as usize / 1024 / 1024
             );
@@ -527,23 +595,29 @@ fn main() {
         .map(|info| info.pfns.len())
         .max()
         .unwrap();
-    println!("Total PFNs: {total_pfns}");
-    println!("Max PFNs: {max_pfns}");
+    println!(
+        "Total PFNs: {total_pfns} ({} MiB)",
+        total_pfns * page_size as usize / 1024 / 1024
+    );
+    println!(
+        "Max PFNs: {max_pfns} ({} MiB)",
+        max_pfns * page_size as usize / 1024 / 1024
+    );
     println!();
 
     let mut splitter = ProcessSplitterByUid::new();
-    splitter.split(processes_info);
+    splitter.split(&shms, processes_info);
     splitter.display();
     let processes: Vec<ProcessInfo> = splitter.collect_processes();
 
     let mut splitter = ProcessSplitterByEnvVariable::new("ORACLE_SID");
-    splitter.split(processes);
+    splitter.split(&shms, processes);
     splitter.display();
     let processes: Vec<ProcessInfo> = splitter.collect_processes();
 
     if !pids.is_empty() {
         let mut splitter = ProcessSplitterByPids::new(&pids);
-        splitter.split(processes);
+        splitter.split(&shms, processes);
         splitter.display();
     }
 }
