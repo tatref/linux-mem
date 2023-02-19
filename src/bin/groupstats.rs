@@ -477,15 +477,16 @@ fn main() {
 
     if !shms.is_empty() {
         println!("Shared memory segments:");
-        println!("         key           id       PFNs    RSS MiB",);
-        println!("===============================================",);
+        println!("         key           id       PFNs    RSS MiB  % in RAM",);
+        println!("==========================================================",);
         for (shm, pfns) in &shms {
             println!(
-                "{:>12} {:>12} {:>10} {:>10}",
+                "{:>12} {:>12} {:>10} {:>10} {:>8.2}%",
                 shm.key,
                 shm.shmid,
                 pfns.len(),
-                pfns.len() * page_size as usize / 1024 / 1024
+                pfns.len() * page_size as usize / 1024 / 1024,
+                (pfns.len() as u64 * page_size) as f32 / shm.size as f32
             );
         }
         println!();
