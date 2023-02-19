@@ -27,13 +27,6 @@ use std::{
 
 type PfnHashSet = HashSet<Pfn>;
 
-#[derive(Eq, PartialEq, Hash)]
-struct ShmMetadata {
-    size: u64,
-    first_page: PageInfo,
-    last_page: PageInfo,
-}
-
 struct ProcessInfo {
     process: Process,
     uid: u32,
@@ -44,7 +37,6 @@ struct ProcessInfo {
     vsz: u64,
     pte: u64,
     fds: usize,
-    shm_metadatas: HashSet<ShmMetadata>,
 }
 
 struct ProcessGroupInfo {
@@ -98,38 +90,25 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
     let fds = process.fd_count()?;
 
     let memory_maps = snap::get_memory_maps_for_process(&process)?;
-    let mut shm_metadatas = HashSet::new();
 
     for (memory_map, pages) in memory_maps.iter() {
         let size = memory_map.address.1 - memory_map.address.0;
         vsz += size;
 
-        if let procfs::process::MMapPath::Vsys(idx) = memory_map.pathname {
-            let size = size;
-            let first_page = *pages.first().unwrap();
-            let last_page = *pages.last().unwrap();
-            let shm_metadata = ShmMetadata {
-                first_page,
-                last_page,
-                size,
-            };
-            shm_metadatas.insert(shm_metadata);
-        } else {
-            for page in pages.iter() {
-                match page {
-                    PageInfo::MemoryPage(memory_page) => {
-                        let pfn = memory_page.get_page_frame_number();
-                        if pfn.0 != 0 {
-                            rss += page_size;
-                        }
-                        pfns.insert(pfn);
+        for page in pages.iter() {
+            match page {
+                PageInfo::MemoryPage(memory_page) => {
+                    let pfn = memory_page.get_page_frame_number();
+                    if pfn.0 != 0 {
+                        rss += page_size;
                     }
-                    PageInfo::SwapPage(swap_page) => {
-                        let swap_type = swap_page.get_swap_type();
-                        let offset = swap_page.get_swap_offset();
+                    pfns.insert(pfn);
+                }
+                PageInfo::SwapPage(swap_page) => {
+                    let swap_type = swap_page.get_swap_type();
+                    let offset = swap_page.get_swap_offset();
 
-                        swap_pages.insert((swap_type, offset));
-                    }
+                    swap_pages.insert((swap_type, offset));
                 }
             }
         }
@@ -144,7 +123,6 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
         environ: env,
         pfns,
         swap_pages,
-        shm_metadatas,
         rss,
         vsz,
         pte,
@@ -338,45 +316,13 @@ fn processes_group_info(
     let mut swap_pages = HashSet::new();
     let mut pte = 0;
     let mut fds = 0;
-    let mut shm_metadatas = HashSet::new();
 
     for process_info in &processes_info {
         pfns.extend(&process_info.pfns);
         swap_pages.extend(&process_info.swap_pages);
         pte += process_info.pte;
         fds += process_info.fds;
-        shm_metadatas.extend(&process_info.shm_metadatas);
     }
-
-    let mut tmp_shm_pfns: HashSet<Pfn> = HashSet::new();
-    for shm_metadata in shm_metadatas.iter() {
-        let mut found = false;
-
-        let first = match shm_metadata.first_page {
-            PageInfo::MemoryPage(memory_page) => memory_page.get_page_frame_number(),
-            PageInfo::SwapPage(_) => todo!(),
-        };
-        let last = match shm_metadata.last_page {
-            PageInfo::MemoryPage(memory_page) => memory_page.get_page_frame_number(),
-            PageInfo::SwapPage(_) => todo!(),
-        };
-
-        for (shm, shm_pfns) in shms {
-            if shm_pfns.contains(&first)
-                && shm_pfns.contains(&last)
-                && shm_metadata.size == shm.size
-            {
-                found = true;
-                tmp_shm_pfns.extend(shm_pfns);
-            }
-        }
-
-        if !found {
-            println!("WARNING: can't find shm (size={})", shm_metadata.size);
-        }
-    }
-
-    pfns.extend(tmp_shm_pfns);
 
     ProcessGroupInfo {
         name,
