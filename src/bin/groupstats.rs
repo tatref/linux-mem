@@ -3,15 +3,11 @@
 #![feature(drain_filter)]
 
 // TODO:
-// - args for splits
-//   - oracle: --oracle
-//   - shm: --shm
-//   - uid: --uid
-//   - pids: --pids 1 2 3
-//   - env: --env ORACLE_SID
 // - filters
+// - logging
 // - remove unwraps
 
+use clap::Parser;
 use itertools::Itertools;
 use procfs::{
     process::{PageInfo, Pfn, Process},
@@ -334,7 +330,7 @@ fn processes_group_info(
     }
 }
 
-/// Spawn new process with different user
+/// Spawn new process with database user
 /// return smon info
 fn get_smon_info(
     pid: i32,
@@ -389,9 +385,29 @@ fn get_smon_info(
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    #[derive(Parser, Debug)]
+    #[command(author, version, about, long_about = None)]
+    struct Cli {
+        #[arg(long, hide(true))]
+        get_sga: bool,
 
-    if args.get(1) == Some(&String::from("get_sga")) {
+        #[arg(short, long)]
+        mem_limit: Option<u64>,
+
+        #[arg(short = 'e', long)]
+        split_env: Option<String>,
+
+        #[arg(short = 'u', long)]
+        split_uid: bool,
+
+        #[arg(short = 'p', long, action = clap::ArgAction::Append)]
+        split_pids: Vec<i32>,
+    }
+
+    let cli = Cli::parse();
+    //dbg!(&cli);
+
+    if cli.get_sga {
         assert_ne!(users::get_effective_uid(), 0);
 
         // subprogram to connect to instance and print sga size
@@ -404,19 +420,12 @@ fn main() {
         std::process::exit(0);
     }
 
+    // Main program starts here
     if users::get_effective_uid() != 0 {
         panic!("Run as root");
     }
 
-    let pids: Vec<i32> = args
-        .iter()
-        .skip(1)
-        .map(|s| s.parse().expect("PID arg must be a number"))
-        .collect();
-
-    // first run
-    // find smons processes, and for each spawn a new process in the correct context to get infos
-
+    // find smons processes, and for each spawn a new process in the correct context to get database info
     let instances: Vec<SmonInfo> = snap::find_smons()
         .iter()
         .filter_map(|(pid, uid, sid, home)| {
@@ -508,16 +517,32 @@ fn main() {
         .collect();
 
     let my_pid = std::process::id();
+    let my_process = procfs::process::Process::new(my_pid as i32).unwrap();
 
+    // processes are scanned once and reused to get a more consistent view
     println!("Scanning processes...");
     let chrono = std::time::Instant::now();
     let all_processes: Vec<_> = procfs::process::all_processes().unwrap().collect();
     let processes_count = all_processes.len();
     let mut processes_info = Vec::new();
     for (idx, proc) in all_processes.into_iter().enumerate() {
-        if idx % 10 == 0 {
-            print!("{}/{}\r", idx, processes_count);
-            let _ = stdout().lock().flush();
+        if idx % 20 == 0 {
+            if let Some(mem_limit) = cli.mem_limit {
+                let my_rss = my_process.status().unwrap().vmrss.unwrap() / 1024;
+                print!("{}/{} current rss={my_rss} MiB\r", idx, processes_count);
+                let _ = stdout().lock().flush();
+
+                if my_rss > mem_limit {
+                    println!(
+                        "\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
+                        mem_limit
+                    );
+                    break;
+                }
+            } else {
+                print!("{}/{}\r", idx, processes_count);
+                let _ = stdout().lock().flush();
+            }
         }
         let Ok(proc) = proc else {continue;};
         if proc.pid as u32 != my_pid {
@@ -551,19 +576,27 @@ fn main() {
     );
     println!();
 
-    let mut splitter = ProcessSplitterByUid::new();
-    splitter.split(&shms, processes_info);
-    splitter.display();
-    let processes: Vec<ProcessInfo> = splitter.collect_processes();
+    let processes_info: Vec<ProcessInfo> = if cli.split_uid {
+        let mut splitter = ProcessSplitterByUid::new();
+        splitter.split(&shms, processes_info);
+        splitter.display();
+        splitter.collect_processes()
+    } else {
+        processes_info
+    };
 
-    let mut splitter = ProcessSplitterByEnvVariable::new("ORACLE_SID");
-    splitter.split(&shms, processes);
-    splitter.display();
-    let processes: Vec<ProcessInfo> = splitter.collect_processes();
+    let processes_info: Vec<ProcessInfo> = if let Some(var) = cli.split_env {
+        let mut splitter = ProcessSplitterByEnvVariable::new(var);
+        splitter.split(&shms, processes_info);
+        splitter.display();
+        splitter.collect_processes()
+    } else {
+        processes_info
+    };
 
-    if !pids.is_empty() {
-        let mut splitter = ProcessSplitterByPids::new(&pids);
-        splitter.split(&shms, processes);
+    if !cli.split_pids.is_empty() {
+        let mut splitter = ProcessSplitterByPids::new(&cli.split_pids);
+        splitter.split(&shms, processes_info);
         splitter.display();
     }
 }
