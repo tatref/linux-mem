@@ -486,7 +486,7 @@ fn main() {
                 shm.shmid,
                 pfns.len(),
                 pfns.len() * page_size as usize / 1024 / 1024,
-                (pfns.len() as u64 * page_size) as f32 / shm.size as f32
+                (pfns.len() as u64 * page_size) as f32 / shm.size as f32 * 100.
             );
         }
         println!();
