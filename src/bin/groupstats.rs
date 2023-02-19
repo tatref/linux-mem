@@ -10,7 +10,7 @@
 use clap::Parser;
 use procfs::{
     process::{PageInfo, Pfn, Process},
-    PhysicalPageFlags, Shm,
+    MemoryPressure, PhysicalPageFlags, Shm,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -536,6 +536,7 @@ fn main() {
     let my_process = procfs::process::Process::new(my_pid as i32).unwrap();
 
     // processes are scanned once and reused to get a more consistent view
+    let mut hit_memory_limit = false;
     println!("Scanning processes...");
     let chrono = std::time::Instant::now();
     let all_processes: Vec<_> = procfs::process::all_processes().unwrap().collect();
@@ -553,6 +554,7 @@ fn main() {
                         "\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
                         mem_limit
                     );
+                    hit_memory_limit = true;
                     break;
                 }
             } else {
@@ -614,5 +616,12 @@ fn main() {
         let mut splitter = ProcessSplitterByPids::new(&cli.split_pids);
         splitter.split(&shms, processes_info);
         splitter.display();
+    }
+
+    if hit_memory_limit {
+        println!(
+            "\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
+            cli.mem_limit.unwrap()
+        )
     }
 }
