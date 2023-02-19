@@ -363,7 +363,7 @@ fn get_smon_info(
         .env("ORACLE_SID", sid)
         .env("ORACLE_HOME", home)
         .uid(uid)
-        .arg("get_sga")
+        .arg("--get-sga")
         .output()
         .expect("failed to execute process");
 
