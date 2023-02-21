@@ -31,18 +31,30 @@ Memory usage for groups of processes. RSS and USS are computed from physical pag
 Groups can be created by user, by environment variable, or by user provided PIDs list
 
 ```
-Processes by user:
-user root                      RSS    204 MiB USS    170 MiB
-user gdm                       RSS    361 MiB USS    333 MiB
-user avahi                     RSS      6 MiB USS      1 MiB
-user dbus                      RSS      7 MiB USS      3 MiB
-user rtkit                     RSS      3 MiB USS      0 MiB
-user chrony                    RSS      4 MiB USS      1 MiB
-user libstoragemgmt            RSS      1 MiB USS      0 MiB
-user colord                    RSS     11 MiB USS      2 MiB
-user polkitd                   RSS     26 MiB USS     16 MiB
-user tatref                    RSS   1966 MiB USS   1946 MiB
+Process groups by UID
+group_name                     #procs     RSS MiB     USS MiB
+=============================================================
+root                               31          80          60
+gdm                                39         122         109
+avahi                               2           5           1
+dbus                                2           6           2
+rtkit                               1           3           0
+chrony                              1           2           0
+libstoragemgmt                      1           2           0
+colord                              1           7           1
+polkitd                             1          12           5
+tatref                             23        1118        1102
 ```
+
+### Building
+
+```
+$ ./builder.sh
+$ ./build.sh cargo b --release --bin groupstats
+$ ll target.el7/release/groupstats
+-rwxr-xr-x 2 tatref tatref 9564720 Feb 21 23:02 target.el7/release/groupstats
+```
+
 
 ## [processes2png](src/bin/processes2png.rs)
 
