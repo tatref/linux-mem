@@ -151,8 +151,8 @@ mod splitters {
         fn display(&'a self) {
             let chrono = std::time::Instant::now();
             println!("Process groups by {}", self.name());
-            println!("{:<30} {:>6} MiB {:>6} MiB", "group_name", "RSS", "USS");
-            println!("====================================================");
+            println!("group_name                     #procs     RSS MiB     USS MiB",);
+            println!("=============================================================");
             for group_1 in self.iter_groups() {
                 let mut other_pfns = HashSet::new();
                 for group_2 in self.iter_groups() {
@@ -161,12 +161,16 @@ mod splitters {
                     }
                 }
 
+                let count = group_1.processes_info.len();
                 let rss = group_1.pfns.len() as u64 * procfs::page_size() / 1024 / 1024;
                 let uss = group_1.pfns.difference(&other_pfns).count() as u64 * procfs::page_size()
                     / 1024
                     / 1024;
 
-                println!("{:<30} {:>10} {:>10}", group_1.name, rss, uss);
+                println!(
+                    "{:<30}  {:>5}  {:>10}  {:>10}",
+                    group_1.name, count, rss, uss
+                );
             }
             println!("\nSplit by {}: {:?}", self.name(), chrono.elapsed());
             println!();
@@ -205,8 +209,7 @@ mod splitters {
                     .drain_filter(|p| p.environ.get(&self.var) == sid.as_ref())
                     .collect();
                 let name = format!(
-                    "{}={:?}",
-                    self.var.to_string_lossy(),
+                    "{:?}",
                     sid.as_ref().map(|os| os.to_string_lossy().to_string())
                 );
                 let process_group_info = processes_group_info(some_processes, name);
@@ -542,7 +545,7 @@ fn main() {
     let processes_count = all_processes.len();
     let mut processes_info = Vec::new();
     for (idx, proc) in all_processes.into_iter().enumerate() {
-        if idx % 20 == 0 {
+        if idx % 10 == 0 {
             if let Some(mem_limit) = cli.mem_limit {
                 let my_rss = my_process.status().unwrap().vmrss.unwrap() / 1024;
                 print!("{}/{} current rss={my_rss} MiB\r", idx, processes_count);
