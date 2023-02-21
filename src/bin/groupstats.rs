@@ -10,7 +10,7 @@
 use clap::Parser;
 use procfs::{
     process::{PageInfo, Pfn, Process},
-    MemoryPressure, PhysicalPageFlags, Shm,
+    PhysicalPageFlags,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -136,7 +136,6 @@ mod splitters {
     };
 
     use itertools::Itertools;
-    use procfs::{process::Pfn, Shm};
 
     use crate::{processes_group_info, ProcessGroupInfo, ProcessInfo};
 
@@ -145,7 +144,7 @@ mod splitters {
         type GroupIter<'b: 'a>: Iterator<Item = &'a ProcessGroupInfo>
         where
             Self: 'b;
-        fn split(&mut self, shms: &HashMap<Shm, HashSet<Pfn>>, processes: Vec<ProcessInfo>);
+        fn split(&mut self, processes: Vec<ProcessInfo>);
         fn iter_groups<'b>(&'b self) -> Self::GroupIter<'b>;
         fn collect_processes(self) -> Vec<ProcessInfo>;
 
@@ -194,7 +193,7 @@ mod splitters {
         fn name(&self) -> String {
             format!("environment variable {}", self.var.to_string_lossy())
         }
-        fn split(&mut self, shms: &HashMap<Shm, HashSet<Pfn>>, mut processes: Vec<ProcessInfo>) {
+        fn split(&mut self, mut processes: Vec<ProcessInfo>) {
             let sids: HashSet<Option<OsString>> = processes
                 .iter()
                 .map(|p| p.environ.get(&self.var).cloned())
@@ -210,7 +209,7 @@ mod splitters {
                     self.var.to_string_lossy(),
                     sid.as_ref().map(|os| os.to_string_lossy().to_string())
                 );
-                let process_group_info = processes_group_info(shms, some_processes, name);
+                let process_group_info = processes_group_info(some_processes, name);
                 groups.insert(sid, process_group_info);
             }
             self.groups = groups;
@@ -244,7 +243,7 @@ mod splitters {
         fn name(&self) -> String {
             format!("PID list")
         }
-        fn split(&mut self, shms: &HashMap<Shm, HashSet<Pfn>>, processes: Vec<ProcessInfo>) {
+        fn split(&mut self, processes: Vec<ProcessInfo>) {
             let mut processes_info_0 = Vec::new();
             let mut processes_info_1 = Vec::new();
 
@@ -258,8 +257,8 @@ mod splitters {
 
             let name_0 = self.pids.iter().map(|pid| pid.to_string()).join(", ");
             let name_1 = "Others PIDs".into();
-            let process_group_info_0 = processes_group_info(shms, processes_info_0, name_0);
-            let process_group_info_1 = processes_group_info(shms, processes_info_1, name_1);
+            let process_group_info_0 = processes_group_info(processes_info_0, name_0);
+            let process_group_info_1 = processes_group_info(processes_info_1, name_1);
 
             self.groups.insert(0, process_group_info_0);
             self.groups.insert(1, process_group_info_1);
@@ -291,7 +290,7 @@ mod splitters {
         fn name(&self) -> String {
             format!("UID")
         }
-        fn split(&mut self, shms: &HashMap<Shm, HashSet<Pfn>>, mut processes: Vec<ProcessInfo>) {
+        fn split(&mut self, mut processes: Vec<ProcessInfo>) {
             let uids: HashSet<u32> = processes.iter().map(|p| p.uid).collect();
 
             for uid in uids {
@@ -302,7 +301,7 @@ mod splitters {
                 };
                 let processes_info: Vec<ProcessInfo> =
                     processes.drain_filter(|p| p.uid == uid).collect();
-                let group_info = processes_group_info(shms, processes_info, username);
+                let group_info = processes_group_info(processes_info, username);
                 self.groups.insert(uid, group_info);
             }
         }
@@ -318,11 +317,7 @@ mod splitters {
     }
 }
 
-fn processes_group_info(
-    shms: &HashMap<Shm, HashSet<Pfn>>,
-    processes_info: Vec<ProcessInfo>,
-    name: String,
-) -> ProcessGroupInfo {
+fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> ProcessGroupInfo {
     let mut pfns = HashSet::new();
     let mut swap_pages = HashSet::new();
     let mut pte = 0;
@@ -441,6 +436,7 @@ fn main() {
     }
 
     // find smons processes, and for each spawn a new process in the correct context to get database info
+    println!("Scanning Oracle instances...");
     let instances: Vec<SmonInfo> = snap::find_smons()
         .iter()
         .filter_map(|(pid, uid, sid, home)| {
@@ -468,30 +464,32 @@ fn main() {
 
     let page_size = procfs::page_size();
 
-    // shm (key, id) -> PFNs
-    let mut shms: HashMap<procfs::Shm, HashSet<Pfn>> = HashMap::new();
-    for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
-        let pfns = snap::shm2pfns(&shm).unwrap();
-        shms.insert(shm, pfns);
-    }
-
-    if !shms.is_empty() {
-        println!("Shared memory segments:");
-        println!("         key           id       PFNs    RSS MiB  % in RAM",);
-        println!("==========================================================",);
-        for (shm, pfns) in &shms {
-            println!(
-                "{:>12} {:>12} {:>10} {:>10} {:>8.2}%",
-                shm.key,
-                shm.shmid,
-                pfns.len(),
-                pfns.len() * page_size as usize / 1024 / 1024,
-                (pfns.len() as u64 * page_size) as f32 / shm.size as f32 * 100.
-            );
+    if false {
+        // shm (key, id) -> PFNs
+        let mut shms: HashMap<procfs::Shm, HashSet<Pfn>> = HashMap::new();
+        for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
+            let pfns = snap::shm2pfns(&shm).unwrap();
+            shms.insert(shm, pfns);
         }
-        println!();
-    } else {
-        println!("Can't locate any shared memory segment")
+
+        if !shms.is_empty() {
+            println!("Shared memory segments:");
+            println!("         key           id       PFNs    RSS MiB  % in RAM",);
+            println!("==========================================================",);
+            for (shm, pfns) in &shms {
+                println!(
+                    "{:>12} {:>12} {:>10} {:>10} {:>8.2}%",
+                    shm.key,
+                    shm.shmid,
+                    pfns.len(),
+                    pfns.len() * page_size as usize / 1024 / 1024,
+                    (pfns.len() as u64 * page_size) as f32 / shm.size as f32 * 100.
+                );
+            }
+            println!();
+        } else {
+            println!("Can't locate any shared memory segment")
+        }
     }
 
     // probably incorrect?
@@ -501,36 +499,37 @@ fn main() {
     //    snap::get_kernel_datastructure_size(current_kernel).expect("Unknown kernel");
 
     //let mut kpagecount = procfs::KPageCount::new().expect("Can't open /proc/kpagecount");
-    let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
+    if false {
+        let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
+        let all_physical_pages: HashMap<Pfn, PhysicalPageFlags> = procfs::iomem()
+            .expect("Can't read iomem")
+            .iter()
+            .filter_map(|(_indent, map)| {
+                if map.name == "System RAM" {
+                    Some(map)
+                } else {
+                    None
+                }
+            })
+            .map(|map| {
+                let (start, end) = map.get_range();
 
-    let all_physical_pages: HashMap<Pfn, PhysicalPageFlags> = procfs::iomem()
-        .expect("Can't read iomem")
-        .iter()
-        .filter_map(|(_indent, map)| {
-            if map.name == "System RAM" {
-                Some(map)
-            } else {
-                None
-            }
-        })
-        .map(|map| {
-            let (start, end) = map.get_range();
+                //let counts = kpagecount
+                //    .get_count_in_range(start, end)
+                //    .expect("Can't read /proc/kpagecount");
+                let flags = kpageflags
+                    .get_range_info(start, end)
+                    .expect("Can't read /proc/kpagecount");
+                let pfns: Vec<Pfn> = (start.0..end.0).map(|pfn| Pfn(pfn)).collect();
 
-            //let counts = kpagecount
-            //    .get_count_in_range(start, end)
-            //    .expect("Can't read /proc/kpagecount");
-            let flags = kpageflags
-                .get_range_info(start, end)
-                .expect("Can't read /proc/kpagecount");
-            let pfns: Vec<Pfn> = (start.0..end.0).map(|pfn| Pfn(pfn)).collect();
+                use itertools::izip;
+                let v: Vec<(Pfn, PhysicalPageFlags)> = izip!(pfns, flags).collect();
 
-            use itertools::izip;
-            let v: Vec<(Pfn, PhysicalPageFlags)> = izip!(pfns, flags).collect();
-
-            v
-        })
-        .flatten()
-        .collect();
+                v
+            })
+            .flatten()
+            .collect();
+    }
 
     let my_pid = std::process::id();
     let my_process = procfs::process::Process::new(my_pid as i32).unwrap();
@@ -596,7 +595,7 @@ fn main() {
 
     let processes_info: Vec<ProcessInfo> = if cli.split_uid {
         let mut splitter = ProcessSplitterByUid::new();
-        splitter.split(&shms, processes_info);
+        splitter.split(processes_info);
         splitter.display();
         splitter.collect_processes()
     } else {
@@ -605,7 +604,7 @@ fn main() {
 
     let processes_info: Vec<ProcessInfo> = if let Some(var) = cli.split_env {
         let mut splitter = ProcessSplitterByEnvVariable::new(var);
-        splitter.split(&shms, processes_info);
+        splitter.split(processes_info);
         splitter.display();
         splitter.collect_processes()
     } else {
@@ -614,7 +613,7 @@ fn main() {
 
     if !cli.split_pids.is_empty() {
         let mut splitter = ProcessSplitterByPids::new(&cli.split_pids);
-        splitter.split(&shms, processes_info);
+        splitter.split(processes_info);
         splitter.display();
     }
 
