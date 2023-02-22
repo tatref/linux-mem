@@ -3,7 +3,9 @@
 #![feature(drain_filter)]
 
 // TODO:
+// - benchmark ahash vs standard hash
 // - filters
+// - process stats after scan
 // - logging
 // - remove unwraps
 
@@ -24,7 +26,7 @@ use crate::splitters::{
     ProcessSplitter, ProcessSplitterByEnvVariable, ProcessSplitterByPids, ProcessSplitterByUid,
 };
 
-type PfnHashSet = HashSet<Pfn>;
+type PfnHashSet = HashSet<Pfn, ahash::RandomState>;
 
 pub struct ProcessInfo {
     process: Process,
@@ -70,7 +72,7 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
     let page_size = procfs::page_size();
 
     // physical memory pages
-    let mut pfns: PfnHashSet = HashSet::new();
+    let mut pfns: PfnHashSet = HashSet::default();
     // swap type, offset
     let mut swap_pages: HashSet<(u64, u64)> = HashSet::new();
 
@@ -137,7 +139,7 @@ mod splitters {
 
     use itertools::Itertools;
 
-    use crate::{processes_group_info, ProcessGroupInfo, ProcessInfo};
+    use crate::{processes_group_info, PfnHashSet, ProcessGroupInfo, ProcessInfo};
 
     pub trait ProcessSplitter<'a> {
         fn name(&self) -> String;
@@ -154,7 +156,7 @@ mod splitters {
             println!("group_name                     #procs     RSS MiB     USS MiB",);
             println!("=============================================================");
             for group_1 in self.iter_groups() {
-                let mut other_pfns = HashSet::new();
+                let mut other_pfns: PfnHashSet = HashSet::default();
                 for group_2 in self.iter_groups() {
                     if group_1 != group_2 {
                         other_pfns.extend(&group_2.pfns);
@@ -321,7 +323,7 @@ mod splitters {
 }
 
 fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> ProcessGroupInfo {
-    let mut pfns = HashSet::new();
+    let mut pfns: PfnHashSet = HashSet::default();
     let mut swap_pages = HashSet::new();
     let mut pte = 0;
     let mut fds = 0;
@@ -404,6 +406,15 @@ fn main() {
         #[arg(long, hide(true))]
         get_sga: bool,
 
+        #[arg(long, hide(true))]
+        scan_oracle: bool,
+
+        #[arg(long, hide(true))]
+        scan_shm: bool,
+
+        #[arg(long, hide(true))]
+        scan_kpageflags: bool,
+
         #[arg(short, long)]
         mem_limit: Option<u64>,
 
@@ -438,37 +449,39 @@ fn main() {
         panic!("Run as root");
     }
 
-    // find smons processes, and for each spawn a new process in the correct context to get database info
-    println!("Scanning Oracle instances...");
-    let instances: Vec<SmonInfo> = snap::find_smons()
-        .iter()
-        .filter_map(|(pid, uid, sid, home)| {
-            let smon_info = get_smon_info(*pid, *uid, sid.as_os_str(), home.as_os_str());
-
-            smon_info.ok()
-        })
-        .collect();
-
-    if !instances.is_empty() {
-        println!("Oracle instances:");
-        println!("SID               SGA MiB");
-        println!("==========================");
-        for instance in &instances {
-            println!(
-                "{:<12} {:>12}",
-                instance.sid.to_string_lossy(),
-                instance.sga_size / 1024 / 1024
-            );
-        }
-        println!();
-    } else {
-        println!("Can't locate any Oracle instance");
-    }
-
     let page_size = procfs::page_size();
 
-    if false {
-        // shm (key, id) -> PFNs
+    if cli.scan_oracle {
+        // find smons processes, and for each spawn a new process in the correct context to get database info
+        println!("Scanning Oracle instances...");
+        let instances: Vec<SmonInfo> = snap::find_smons()
+            .iter()
+            .filter_map(|(pid, uid, sid, home)| {
+                let smon_info = get_smon_info(*pid, *uid, sid.as_os_str(), home.as_os_str());
+
+                smon_info.ok()
+            })
+            .collect();
+
+        if !instances.is_empty() {
+            println!("Oracle instances:");
+            println!("SID               SGA MiB");
+            println!("==========================");
+            for instance in &instances {
+                println!(
+                    "{:<12} {:>12}",
+                    instance.sid.to_string_lossy(),
+                    instance.sga_size / 1024 / 1024
+                );
+            }
+            println!();
+        } else {
+            println!("Can't locate any Oracle instance");
+        }
+    }
+
+    if cli.scan_shm {
+        println!("Scanning shm...");
         let mut shms: HashMap<procfs::Shm, HashSet<Pfn>> = HashMap::new();
         for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
             let pfns = snap::shm2pfns(&shm).unwrap();
@@ -502,7 +515,8 @@ fn main() {
     //    snap::get_kernel_datastructure_size(current_kernel).expect("Unknown kernel");
 
     //let mut kpagecount = procfs::KPageCount::new().expect("Can't open /proc/kpagecount");
-    if false {
+    if cli.scan_kpageflags {
+        println!("Scanning /proc/kpageflags...");
         let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
         let all_physical_pages: HashMap<Pfn, PhysicalPageFlags> = procfs::iomem()
             .expect("Can't read iomem")

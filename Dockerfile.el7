@@ -11,6 +11,8 @@ RUN curl -LO https://github.com/mozilla/sccache/releases/download/v0.3.3/sccache
     rm -rf sccache-v0.3.3-x86_64-unknown-linux-musl*
 
 RUN echo -e '[registries.crates-io]\nprotocol = "sparse"' > $HOME/.cargo/config.toml
-
 ENV PATH=$PATH:/root/.cargo/bin
+
+RUN rustup component add llvm-tools-preview
+
 WORKDIR /src
