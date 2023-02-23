@@ -55,6 +55,11 @@ $ ll target.el7/release/groupstats
 -rwxr-xr-x 2 tatref tatref 9564720 Feb 21 23:02 target.el7/release/groupstats
 ```
 
+features :
+* `--features ahash`
+* `--features fnv`
+* `--features metrohash`
+* (default std hash)
 
 ## [processes2png](src/bin/processes2png.rs)
 

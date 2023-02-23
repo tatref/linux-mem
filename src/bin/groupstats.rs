@@ -3,36 +3,62 @@
 #![feature(drain_filter)]
 
 // TODO:
-// - benchmark ahash vs standard hash
+// - bench memory usage
+// - hash algos
+//   - std
+//   - https://crates.io/crates/fnv
+//   - ahash
+//   - https://crates.io/crates/xxhash-rust
+//   - https://crates.io/crates/metrohash
 // - filters
-// - process stats after scan
-// - logging
+// - process stats after scan (vanished, kernel...)
+// - proper logging
 // - remove unwraps
 
 use clap::Parser;
+use indicatif::ParallelProgressIterator;
 use procfs::{
     process::{PageInfo, Pfn, Process},
     PhysicalPageFlags,
 };
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
-    io::{stdout, Write},
     os::unix::process::CommandExt,
     process::Command,
+    sync::{Arc, Mutex},
 };
 
 use crate::splitters::{
     ProcessSplitter, ProcessSplitterByEnvVariable, ProcessSplitterByPids, ProcessSplitterByUid,
 };
 
-type PfnHashSet = HashSet<Pfn, ahash::RandomState>;
+#[cfg(not(any(feature = "fnv", feature = "ahash", feature = "metrohash")))]
+type ProcessGroupPfns = HashSet<Pfn>;
+#[cfg(not(any(feature = "fnv", feature = "ahash", feature = "metrohash")))]
+type ProcessInfoPfns = HashSet<Pfn>;
+
+#[cfg(feature = "fnv")]
+type ProcessGroupPfns = HashSet<Pfn, fnv::FnvBuildHasher>;
+#[cfg(feature = "fnv")]
+type ProcessInfoPfns = HashSet<Pfn, fnv::FnvBuildHasher>;
+
+#[cfg(feature = "ahash")]
+type ProcessGroupPfns = HashSet<Pfn, ahash::RandomState>;
+#[cfg(feature = "ahash")]
+type ProcessInfoPfns = HashSet<Pfn, ahash::RandomState>;
+
+#[cfg(feature = "metrohash")]
+type ProcessGroupPfns = HashSet<Pfn, metrohash::MetroBuildHasher>;
+#[cfg(feature = "metrohash")]
+type ProcessInfoPfns = HashSet<Pfn, metrohash::MetroBuildHasher>;
 
 pub struct ProcessInfo {
     process: Process,
     uid: u32,
     environ: HashMap<OsString, OsString>,
-    pfns: PfnHashSet,
+    pfns: ProcessInfoPfns,
     swap_pages: HashSet<(u64, u64)>,
     rss: u64,
     vsz: u64,
@@ -43,7 +69,7 @@ pub struct ProcessInfo {
 pub struct ProcessGroupInfo {
     name: String,
     processes_info: Vec<ProcessInfo>,
-    pfns: PfnHashSet,
+    pfns: ProcessGroupPfns,
     swap_pages: HashSet<(u64, u64)>,
     pte: u64,
     fds: usize,
@@ -72,7 +98,7 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
     let page_size = procfs::page_size();
 
     // physical memory pages
-    let mut pfns: PfnHashSet = HashSet::default();
+    let mut pfns: ProcessInfoPfns = Default::default();
     // swap type, offset
     let mut swap_pages: HashSet<(u64, u64)> = HashSet::new();
 
@@ -138,17 +164,24 @@ mod splitters {
     };
 
     use itertools::Itertools;
+    use rayon::prelude::ParallelIterator;
 
-    use crate::{processes_group_info, PfnHashSet, ProcessGroupInfo, ProcessInfo};
+    use crate::{processes_group_info, ProcessGroupInfo, ProcessGroupPfns, ProcessInfo};
 
     pub trait ProcessSplitter<'a> {
         fn name(&self) -> String;
         type GroupIter<'b: 'a>: Iterator<Item = &'a ProcessGroupInfo>
         where
             Self: 'b;
-        fn split(&mut self, processes: Vec<ProcessInfo>);
+        fn __split(&mut self, processes: Vec<ProcessInfo>);
         fn iter_groups<'b>(&'b self) -> Self::GroupIter<'b>;
         fn collect_processes(self) -> Vec<ProcessInfo>;
+
+        fn split(&mut self, processes: Vec<ProcessInfo>) {
+            let chrono = std::time::Instant::now();
+            self.__split(processes);
+            println!("Split by {}: {:?}", self.name(), chrono.elapsed());
+        }
 
         fn display(&'a self) {
             let chrono = std::time::Instant::now();
@@ -156,7 +189,7 @@ mod splitters {
             println!("group_name                     #procs     RSS MiB     USS MiB",);
             println!("=============================================================");
             for group_1 in self.iter_groups() {
-                let mut other_pfns: PfnHashSet = HashSet::default();
+                let mut other_pfns: ProcessGroupPfns = HashSet::default();
                 for group_2 in self.iter_groups() {
                     if group_1 != group_2 {
                         other_pfns.extend(&group_2.pfns);
@@ -174,7 +207,7 @@ mod splitters {
                     group_1.name, count, rss, uss
                 );
             }
-            println!("\nSplit by {}: {:?}", self.name(), chrono.elapsed());
+            println!("\nDisplay split by {}: {:?}", self.name(), chrono.elapsed());
             println!();
         }
     }
@@ -199,7 +232,7 @@ mod splitters {
         fn name(&self) -> String {
             format!("environment variable {}", self.var.to_string_lossy())
         }
-        fn split(&mut self, mut processes: Vec<ProcessInfo>) {
+        fn __split(&mut self, mut processes: Vec<ProcessInfo>) {
             let sids: HashSet<Option<OsString>> = processes
                 .iter()
                 .map(|p| p.environ.get(&self.var).cloned())
@@ -248,7 +281,7 @@ mod splitters {
         fn name(&self) -> String {
             format!("PID list")
         }
-        fn split(&mut self, processes: Vec<ProcessInfo>) {
+        fn __split(&mut self, processes: Vec<ProcessInfo>) {
             let mut processes_info_0 = Vec::new();
             let mut processes_info_1 = Vec::new();
 
@@ -295,7 +328,7 @@ mod splitters {
         fn name(&self) -> String {
             format!("UID")
         }
-        fn split(&mut self, mut processes: Vec<ProcessInfo>) {
+        fn __split(&mut self, mut processes: Vec<ProcessInfo>) {
             let uids: HashSet<u32> = processes.iter().map(|p| p.uid).collect();
 
             for uid in uids {
@@ -323,7 +356,7 @@ mod splitters {
 }
 
 fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> ProcessGroupInfo {
-    let mut pfns: PfnHashSet = HashSet::default();
+    let mut pfns: ProcessGroupPfns = HashSet::default();
     let mut swap_pages = HashSet::new();
     let mut pte = 0;
     let mut fds = 0;
@@ -400,6 +433,8 @@ fn get_smon_info(
 }
 
 fn main() {
+    println!("type={}", std::any::type_name::<ProcessInfoPfns>());
+
     #[derive(Parser, Debug)]
     #[command(author, version, about, long_about = None)]
     struct Cli {
@@ -417,6 +452,9 @@ fn main() {
 
         #[arg(short, long)]
         mem_limit: Option<u64>,
+
+        #[arg(short, long, default_value_t = 1)]
+        threads: usize,
 
         #[arg(short = 'e', long)]
         split_env: Option<String>,
@@ -552,38 +590,48 @@ fn main() {
     let my_process = procfs::process::Process::new(my_pid as i32).unwrap();
 
     // processes are scanned once and reused to get a more consistent view
-    let mut hit_memory_limit = false;
+    let hit_memory_limit = Arc::new(Mutex::new(false));
     println!("Scanning processes...");
     let chrono = std::time::Instant::now();
     let all_processes: Vec<_> = procfs::process::all_processes().unwrap().collect();
     let processes_count = all_processes.len();
-    let mut processes_info = Vec::new();
-    for (idx, proc) in all_processes.into_iter().enumerate() {
-        if idx % 10 == 0 {
+
+    let processes_info: Vec<ProcessInfo> = all_processes
+        .into_par_iter()
+        .progress_count(processes_count as u64)
+        .filter_map(|proc| {
             if let Some(mem_limit) = cli.mem_limit {
                 let my_rss = my_process.status().unwrap().vmrss.unwrap() / 1024;
-                print!("{}/{} current rss={my_rss} MiB\r", idx, processes_count);
-                let _ = stdout().lock().flush();
+                //print!("{}/{} current rss={my_rss} MiB\r", processes_count);
+                //let _ = stdout().lock().flush();
 
                 if my_rss > mem_limit {
-                    println!(
-                        "\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
-                        mem_limit
-                    );
-                    hit_memory_limit = true;
-                    break;
+                    while let Ok(mut guard) = hit_memory_limit.try_lock() {
+                        if !*guard {
+                        println!(
+                            "\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
+                            mem_limit
+                        );
+                        }
+                        *guard = true;
+                        break;
+                    }
+                    return None;
                 }
             } else {
-                print!("{}/{}\r", idx, processes_count);
-                let _ = stdout().lock().flush();
+                //print!("{}/{}\r", idx, processes_count);
+                //let _ = stdout().lock().flush();
             }
-        }
-        let Ok(proc) = proc else {continue;};
-        if proc.pid as u32 != my_pid {
-            let Ok(info) = get_info(proc) else {continue;};
-            processes_info.push(info);
-        }
-    }
+            let Ok(proc) = proc else { return None;};
+            if proc.pid as u32 != my_pid {
+                let Ok(info) = get_info(proc) else {return None;};
+                Some(info)
+            } else {
+                None
+            }
+        })
+        .collect();
+
     println!();
     println!(
         "Scanned {} processes in {:?}",
@@ -600,10 +648,7 @@ fn main() {
         .map(|info| info.pfns.len())
         .max()
         .unwrap();
-    println!(
-        "Total PFNs: {total_pfns} ({} MiB)",
-        total_pfns * page_size as usize / 1024 / 1024
-    );
+    println!("Total PFNs: {total_pfns}");
     println!(
         "Max PFNs: {max_pfns} ({} MiB)",
         max_pfns * page_size as usize / 1024 / 1024
@@ -634,7 +679,7 @@ fn main() {
         splitter.display();
     }
 
-    if hit_memory_limit {
+    if *hit_memory_limit.lock().unwrap() {
         println!(
             "\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
             cli.mem_limit.unwrap()
