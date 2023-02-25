@@ -21,10 +21,11 @@ use procfs::{
     process::{PageInfo, Pfn, Process},
     PhysicalPageFlags,
 };
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use rayon::prelude::*;
 use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
+    num::NonZeroUsize,
     os::unix::process::CommandExt,
     process::Command,
     sync::{Arc, Mutex},
@@ -34,9 +35,9 @@ use crate::splitters::{
     ProcessSplitter, ProcessSplitterByEnvVariable, ProcessSplitterByPids, ProcessSplitterByUid,
 };
 
-#[cfg(not(any(feature = "fnv", feature = "ahash", feature = "metrohash")))]
+#[cfg(feature = "std")]
 type ProcessGroupPfns = HashSet<Pfn>;
-#[cfg(not(any(feature = "fnv", feature = "ahash", feature = "metrohash")))]
+#[cfg(feature = "std")]
 type ProcessInfoPfns = HashSet<Pfn>;
 
 #[cfg(feature = "fnv")]
@@ -164,7 +165,7 @@ mod splitters {
     };
 
     use itertools::Itertools;
-    use rayon::prelude::ParallelIterator;
+    use rayon::prelude::*;
 
     use crate::{processes_group_info, ProcessGroupInfo, ProcessGroupPfns, ProcessInfo};
 
@@ -192,7 +193,7 @@ mod splitters {
                 let mut other_pfns: ProcessGroupPfns = HashSet::default();
                 for group_2 in self.iter_groups() {
                     if group_1 != group_2 {
-                        other_pfns.extend(&group_2.pfns);
+                        other_pfns.par_extend(&group_2.pfns);
                     }
                 }
 
@@ -234,7 +235,7 @@ mod splitters {
         }
         fn __split(&mut self, mut processes: Vec<ProcessInfo>) {
             let sids: HashSet<Option<OsString>> = processes
-                .iter()
+                .par_iter()
                 .map(|p| p.environ.get(&self.var).cloned())
                 .collect();
 
@@ -282,8 +283,8 @@ mod splitters {
             format!("PID list")
         }
         fn __split(&mut self, processes: Vec<ProcessInfo>) {
-            let mut processes_info_0 = Vec::new();
-            let mut processes_info_1 = Vec::new();
+            let mut processes_info_0: Vec<ProcessInfo> = Vec::new();
+            let mut processes_info_1: Vec<ProcessInfo> = Vec::new();
 
             for p in processes {
                 if self.pids.contains(&p.process.pid) {
@@ -362,8 +363,8 @@ fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> Proce
     let mut fds = 0;
 
     for process_info in &processes_info {
-        pfns.extend(&process_info.pfns);
-        swap_pages.extend(&process_info.swap_pages);
+        pfns.par_extend(&process_info.pfns);
+        swap_pages.par_extend(&process_info.swap_pages);
         pte += process_info.pte;
         fds += process_info.fds;
     }
@@ -433,6 +434,7 @@ fn get_smon_info(
 }
 
 fn main() {
+    let global_chrono = std::time::Instant::now();
     println!("type={}", std::any::type_name::<ProcessInfoPfns>());
 
     #[derive(Parser, Debug)]
@@ -453,8 +455,8 @@ fn main() {
         #[arg(short, long)]
         mem_limit: Option<u64>,
 
-        #[arg(short, long, default_value_t = 1)]
-        threads: usize,
+        #[arg(short, long)]
+        threads: Option<usize>,
 
         #[arg(short = 'e', long)]
         split_env: Option<String>,
@@ -468,6 +470,19 @@ fn main() {
 
     let cli = Cli::parse();
     //dbg!(&cli);
+
+    let threads = if let Some(t) = cli.threads {
+        t
+    } else {
+        std::thread::available_parallelism()
+            .unwrap_or(NonZeroUsize::new(1).unwrap())
+            .get()
+    };
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()
+        .unwrap();
+    println!("Using {threads} threads");
 
     if cli.get_sga {
         assert_ne!(users::get_effective_uid(), 0);
@@ -608,12 +623,12 @@ fn main() {
                 if my_rss > mem_limit {
                     while let Ok(mut guard) = hit_memory_limit.try_lock() {
                         if !*guard {
-                        println!(
-                            "\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
+                            println!(
+"\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
                             mem_limit
-                        );
+                            );
+                            *guard = true;
                         }
-                        *guard = true;
                         break;
                     }
                     return None;
@@ -648,7 +663,10 @@ fn main() {
         .map(|info| info.pfns.len())
         .max()
         .unwrap();
-    println!("Total PFNs: {total_pfns}");
+    println!(
+        "Total PFNs: {total_pfns} ({} MiB)",
+        total_pfns / 1024 / 1024
+    );
     println!(
         "Max PFNs: {max_pfns} ({} MiB)",
         max_pfns * page_size as usize / 1024 / 1024
@@ -685,4 +703,11 @@ fn main() {
             cli.mem_limit.unwrap()
         )
     }
+
+    let vmhwm = my_process.status().unwrap().vmhwm.unwrap();
+    let rssanon = my_process.status().unwrap().rssanon.unwrap();
+    let vmrss = my_process.status().unwrap().vmrss.unwrap();
+    let global_elapsed = global_chrono.elapsed();
+
+    dbg!(vmhwm, rssanon, vmrss, global_elapsed);
 }

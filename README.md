@@ -56,10 +56,18 @@ $ ll target.el7/release/groupstats
 ```
 
 features :
-* `--features ahash`
+* `--features ahash` (default)
 * `--features fnv`
 * `--features metrohash`
-* (default std hash)
+* `--features std`
+
+To build all releases:
+```
+for x in ahash std fnv metrohash
+do
+  ./build.sh cargo b --release --bin groupstats --no-default-features --features $x
+done
+```
 
 ## [processes2png](src/bin/processes2png.rs)
 

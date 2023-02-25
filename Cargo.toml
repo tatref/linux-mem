@@ -9,10 +9,11 @@ edition = "2021"
 
 
 [features]
+default = ["std"]
 ahash = []
 metrohash = []
 fnv = []
-
+std = []
 
 [profile.release]
 debug = 1
