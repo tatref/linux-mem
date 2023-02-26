@@ -9,11 +9,12 @@ edition = "2021"
 
 
 [features]
-default = ["ahash"]
+default = ["fxhash"]
 ahash = []
 metrohash = []
 fnv = []
 std = []
+fxhash = []
 
 [profile.release]
 debug = 1
@@ -55,3 +56,4 @@ rayon = "1.6.1"
 indicatif = { version = "0.17.3", features = ["rayon"] }
 env_logger = "0.10.0"
 log = "0.4.17"
+rustc-hash = "1.1.0"

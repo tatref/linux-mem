@@ -3,16 +3,10 @@
 #![feature(drain_filter)]
 
 // TODO:
+// - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
-// - hash algos
-//   - std
-//   - https://crates.io/crates/fnv
-//   - ahash
-//   - https://crates.io/crates/xxhash-rust
-//   - https://crates.io/crates/metrohash
 // - filters
 // - process stats after scan (vanished, kernel...)
-// - proper logging
 // - remove unwraps
 
 use clap::Parser;
@@ -58,6 +52,11 @@ type ProcessInfoPfns = HashSet<Pfn, ahash::RandomState>;
 type ProcessGroupPfns = HashSet<Pfn, metrohash::MetroBuildHasher>;
 #[cfg(feature = "metrohash")]
 type ProcessInfoPfns = HashSet<Pfn, metrohash::MetroBuildHasher>;
+
+#[cfg(feature = "fxhash")]
+type ProcessGroupPfns = rustc_hash::FxHashSet<Pfn>;
+#[cfg(feature = "fxhash")]
+type ProcessInfoPfns = rustc_hash::FxHashSet<Pfn>;
 
 pub struct ProcessInfo {
     process: Process,
