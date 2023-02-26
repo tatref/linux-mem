@@ -16,7 +16,11 @@
 // - remove unwraps
 
 use clap::Parser;
-use indicatif::ParallelProgressIterator;
+use core::panic;
+use indicatif::{ProgressBar, ProgressStyle};
+use log::warn;
+#[allow(unused_imports)]
+use log::{debug, error, info, Level};
 use procfs::{
     process::{PageInfo, Pfn, Process},
     PhysicalPageFlags,
@@ -165,6 +169,7 @@ mod splitters {
     };
 
     use itertools::Itertools;
+    use log::info;
     use rayon::prelude::*;
 
     use crate::{processes_group_info, ProcessGroupInfo, ProcessGroupPfns, ProcessInfo};
@@ -181,14 +186,14 @@ mod splitters {
         fn split(&mut self, processes: Vec<ProcessInfo>) {
             let chrono = std::time::Instant::now();
             self.__split(processes);
-            println!("Split by {}: {:?}", self.name(), chrono.elapsed());
+            info!("Split by {}: {:?}", self.name(), chrono.elapsed());
         }
 
         fn display(&'a self) {
             let chrono = std::time::Instant::now();
-            println!("Process groups by {}", self.name());
-            println!("group_name                     #procs     RSS MiB     USS MiB",);
-            println!("=============================================================");
+            info!("Process groups by {}", self.name());
+            info!("group_name                     #procs     RSS MiB     USS MiB",);
+            info!("=============================================================");
             for group_1 in self.iter_groups() {
                 let mut other_pfns: ProcessGroupPfns = HashSet::default();
                 for group_2 in self.iter_groups() {
@@ -203,13 +208,13 @@ mod splitters {
                     / 1024
                     / 1024;
 
-                println!(
+                info!(
                     "{:<30}  {:>5}  {:>10}  {:>10}",
                     group_1.name, count, rss, uss
                 );
             }
-            println!("\nDisplay split by {}: {:?}", self.name(), chrono.elapsed());
-            println!();
+            info!("Display split by {}: {:?}", self.name(), chrono.elapsed());
+            info!("");
         }
     }
 
@@ -434,8 +439,8 @@ fn get_smon_info(
 }
 
 fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let global_chrono = std::time::Instant::now();
-    println!("type={}", std::any::type_name::<ProcessInfoPfns>());
 
     #[derive(Parser, Debug)]
     #[command(author, version, about, long_about = None)]
@@ -469,8 +474,32 @@ fn main() {
     }
 
     let cli = Cli::parse();
-    //dbg!(&cli);
 
+    if cli.get_sga {
+        // oracle shouldn't run as root
+        assert_ne!(users::get_effective_uid(), 0);
+
+        // subprogram to connect to instance and print sga size
+        // We must have the correct context (user, env vars) to connect to database
+        let sga_size = snap::get_sga_size().unwrap();
+
+        // print value, can't use logger here
+        // parent will grab that value in `get_smon_info`
+        println!("{sga_size}");
+        std::process::exit(0);
+    }
+    // can't print anything before that line
+
+    //dbg!(&cli);
+    //println!("type={}", std::any::type_name::<ProcessInfoPfns>());
+
+    let mem_limit = if let Some(m) = cli.mem_limit {
+        m
+    } else {
+        let meminfo = procfs::Meminfo::new().unwrap();
+        meminfo.mem_available.unwrap() / 1024 / 1024
+    };
+    info!("Memory limit: {mem_limit} MiB");
     let threads = if let Some(t) = cli.threads {
         t
     } else {
@@ -482,31 +511,19 @@ fn main() {
         .num_threads(threads)
         .build_global()
         .unwrap();
-    println!("Using {threads} threads");
 
-    if cli.get_sga {
-        assert_ne!(users::get_effective_uid(), 0);
-
-        // subprogram to connect to instance and print sga size
-        // We should have the correct context (user, env vars) to connect to database
-        let sga_size = snap::get_sga_size().unwrap();
-
-        // print value
-        // parent will grab that value in `get_smon_info`
-        println!("{sga_size}");
-        std::process::exit(0);
-    }
-
+    info!("Using {threads} threads");
     // Main program starts here
     if users::get_effective_uid() != 0 {
-        panic!("Run as root");
+        error!("Run as root");
+        panic!();
     }
 
     let page_size = procfs::page_size();
 
     if cli.scan_oracle {
         // find smons processes, and for each spawn a new process in the correct context to get database info
-        println!("Scanning Oracle instances...");
+        info!("Scanning Oracle instances...");
         let instances: Vec<SmonInfo> = snap::find_smons()
             .iter()
             .filter_map(|(pid, uid, sid, home)| {
@@ -517,24 +534,24 @@ fn main() {
             .collect();
 
         if !instances.is_empty() {
-            println!("Oracle instances:");
-            println!("SID               SGA MiB");
-            println!("==========================");
+            info!("Oracle instances:");
+            info!("SID               SGA MiB");
+            info!("==========================");
             for instance in &instances {
-                println!(
+                info!(
                     "{:<12} {:>12}",
                     instance.sid.to_string_lossy(),
                     instance.sga_size / 1024 / 1024
                 );
             }
-            println!();
+            info!("");
         } else {
-            println!("Can't locate any Oracle instance");
+            warn!("Can't locate any Oracle instance");
         }
     }
 
     if cli.scan_shm {
-        println!("Scanning shm...");
+        info!("Scanning shm...");
         let mut shms: HashMap<procfs::Shm, HashSet<Pfn>> = HashMap::new();
         for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
             let pfns = snap::shm2pfns(&shm).unwrap();
@@ -542,11 +559,11 @@ fn main() {
         }
 
         if !shms.is_empty() {
-            println!("Shared memory segments:");
-            println!("         key           id       PFNs    RSS MiB  % in RAM",);
-            println!("==========================================================",);
+            info!("Shared memory segments:");
+            info!("         key           id       PFNs    RSS MiB  % in RAM",);
+            info!("==========================================================",);
             for (shm, pfns) in &shms {
-                println!(
+                info!(
                     "{:>12} {:>12} {:>10} {:>10} {:>8.2}%",
                     shm.key,
                     shm.shmid,
@@ -555,9 +572,9 @@ fn main() {
                     (pfns.len() as u64 * page_size) as f32 / shm.size as f32 * 100.
                 );
             }
-            println!();
+            info!("");
         } else {
-            println!("Can't locate any shared memory segment")
+            warn!("Can't locate any shared memory segment")
         }
     }
 
@@ -569,7 +586,7 @@ fn main() {
 
     //let mut kpagecount = procfs::KPageCount::new().expect("Can't open /proc/kpagecount");
     if cli.scan_kpageflags {
-        println!("Scanning /proc/kpageflags...");
+        info!("Scanning /proc/kpageflags...");
         let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
         let all_physical_pages: HashMap<Pfn, PhysicalPageFlags> = procfs::iomem()
             .expect("Can't read iomem")
@@ -606,49 +623,49 @@ fn main() {
 
     // processes are scanned once and reused to get a more consistent view
     let hit_memory_limit = Arc::new(Mutex::new(false));
-    println!("Scanning processes...");
     let chrono = std::time::Instant::now();
     let all_processes: Vec<_> = procfs::process::all_processes().unwrap().collect();
     let processes_count = all_processes.len();
 
+    info!("Scanning {processes_count} processes");
+    let pb = ProgressBar::new(processes_count as u64);
+    pb.set_style(ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len}").unwrap());
     let processes_info: Vec<ProcessInfo> = all_processes
         .into_par_iter()
-        .progress_count(processes_count as u64)
+        //.progress_count(processes_count as u64)
         .filter_map(|proc| {
-            if let Some(mem_limit) = cli.mem_limit {
-                let my_rss = my_process.status().unwrap().vmrss.unwrap() / 1024;
-                //print!("{}/{} current rss={my_rss} MiB\r", processes_count);
-                //let _ = stdout().lock().flush();
+            let my_rss = my_process.status().unwrap().vmrss.unwrap() / 1024;
+            pb.set_message(format!("{my_rss}/{mem_limit} MiB"));
 
-                if my_rss > mem_limit {
-                    while let Ok(mut guard) = hit_memory_limit.try_lock() {
-                        if !*guard {
-                            println!(
-"\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
+            if my_rss > mem_limit {
+                while let Ok(mut guard) = hit_memory_limit.try_lock() {
+                    if !*guard {
+                        warn!(
+"Hit memory limit ({} MiB), try increasing limit or filtering processes",
                             mem_limit
                             );
-                            *guard = true;
-                        }
-                        break;
+                        *guard = true;
                     }
-                    return None;
+                    break;
                 }
-            } else {
-                //print!("{}/{}\r", idx, processes_count);
-                //let _ = stdout().lock().flush();
+                return None;
             }
+
             let Ok(proc) = proc else { return None;};
             if proc.pid as u32 != my_pid {
                 let Ok(info) = get_info(proc) else {return None;};
+                pb.inc(1);
                 Some(info)
             } else {
+                pb.inc(1);
                 None
             }
         })
         .collect();
+    pb.finish_and_clear();
 
-    println!();
-    println!(
+    info!("");
+    info!(
         "Scanned {} processes in {:?}",
         processes_info.len(),
         chrono.elapsed()
@@ -663,15 +680,15 @@ fn main() {
         .map(|info| info.pfns.len())
         .max()
         .unwrap();
-    println!(
+    info!(
         "Total PFNs: {total_pfns} ({} MiB)",
         total_pfns / 1024 / 1024
     );
-    println!(
+    info!(
         "Max PFNs: {max_pfns} ({} MiB)",
         max_pfns * page_size as usize / 1024 / 1024
     );
-    println!();
+    info!("");
 
     let processes_info: Vec<ProcessInfo> = if cli.split_uid {
         let mut splitter = ProcessSplitterByUid::new();
@@ -698,9 +715,9 @@ fn main() {
     }
 
     if *hit_memory_limit.lock().unwrap() {
-        println!(
-            "\nWARNING: Hit memory limit ({} MiB), try increasing limit or filtering processes",
-            cli.mem_limit.unwrap()
+        warn!(
+            "Hit memory limit ({} MiB), try increasing limit or filtering processes",
+            mem_limit
         )
     }
 
@@ -709,5 +726,8 @@ fn main() {
     let vmrss = my_process.status().unwrap().vmrss.unwrap();
     let global_elapsed = global_chrono.elapsed();
 
-    dbg!(vmhwm, rssanon, vmrss, global_elapsed);
+    info!("vmhwm = {rssanon}");
+    info!("rssanon = {rssanon}");
+    info!("vmrss = {vmrss}");
+    info!("global_elapsed = {global_elapsed:?}");
 }

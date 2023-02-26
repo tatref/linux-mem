@@ -170,7 +170,6 @@ pub fn print_counters(counters: [u64; FLAG_NAMES.len() + 1]) {
 
 pub fn shm2pfns(shm: &Shm) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
     let ptr: *mut libc::c_void;
-    // TODO: fix procfs type
     let shmid: libc::c_int = shm.shmid as i32;
     let size = shm.size;
 
@@ -187,6 +186,7 @@ pub fn shm2pfns(shm: &Shm) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
             }
 
             // try to read the memory
+            // dump because this will load the whole mapping into RAM?
             let ptr = ptr as *mut u8;
             let mut dummy = 0;
 

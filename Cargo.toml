@@ -9,7 +9,7 @@ edition = "2021"
 
 
 [features]
-default = ["std"]
+default = ["ahash"]
 ahash = []
 metrohash = []
 fnv = []
@@ -53,3 +53,5 @@ xxhash-rust = "0.8.6"
 metrohash = "1.0.6"
 rayon = "1.6.1"
 indicatif = { version = "0.17.3", features = ["rayon"] }
+env_logger = "0.10.0"
+log = "0.4.17"
