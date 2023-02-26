@@ -23,5 +23,6 @@ podman run \
 	-e CARGO_HOME=/cargo_home \
 	-e RUSTC_WRAPPER=sccache \
 	-e SCCACHE_DIR=/sccache \
+	-e RUSTFLAGS="$RUSTFLAGS" \
 	rust:$os \
 	$@

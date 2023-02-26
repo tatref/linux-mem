@@ -56,16 +56,21 @@ $ ll target.el7/release/groupstats
 ```
 
 features :
-* `--features ahash` (default)
+* `--features fxhash` (default)
+* `--features ahash`
 * `--features fnv`
 * `--features metrohash`
 * `--features std`
 
 To build all releases:
 ```
-for x in ahash std fnv metrohash
+for h in ahash std fnv metrohash fxhash
 do
-  ./build.sh cargo b --release --bin groupstats --no-default-features --features $x
+  for arch in x86-64 x86-64-v2 x86-64-v3
+  do
+    echo $h $arch
+    RUSTFLAGS="-C target-cpu=$arch" ./build.sh cargo b --release --bin groupstats --no-default-features --features $h
+  done
 done
 ```
 
@@ -73,5 +78,8 @@ done
 
 Visual map of processes memory
 
-For examples, see [my blog](https://tatref.github.io/blog/2023-visual-linux-memory-compact/)
+For details, see [my blog post](https://tatref.github.io/blog/2023-visual-linux-memory-compact/)
+
+
+![gif](https://tatref.github.io/blog/2023-visual-linux-memory-compact/out.gif)
 
