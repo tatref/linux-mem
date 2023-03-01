@@ -57,6 +57,7 @@ impl Snapshot {
 }
 
 fn main() {
+    /*
     let snap1 = std::env::args().nth(1).expect("Enter path to snapshot");
     let snap2 = std::env::args().nth(2).expect("Enter path to snapshot");
 
@@ -83,8 +84,7 @@ fn main() {
     dbg!(p1);
     dbg!(p1.cmdline(), p1.exe());
 
-        let pagemap = p1.pagemap().unwrap();
-        let 
+    let pagemap = p1.pagemap().unwrap();
 
     return;
     let p2 = snap2
@@ -144,4 +144,5 @@ fn main() {
     }
 
     println!("\nDone");
+    */
 }
