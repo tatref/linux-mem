@@ -57,3 +57,4 @@ indicatif = { version = "0.17.3", features = ["rayon"] }
 env_logger = "0.10.0"
 log = "0.4.17"
 rustc-hash = "1.1.0"
+anyhow = "1.0.69"

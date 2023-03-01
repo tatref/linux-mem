@@ -6,8 +6,11 @@
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
 // - filters
+//   - env_k
+//   - or
 // - process stats after scan (vanished, kernel...)
 // - remove unwraps
+// - test zigbuild for cross glibc builds
 
 use clap::Parser;
 use core::panic;
@@ -360,6 +363,285 @@ mod splitters {
     }
 }
 
+mod filters {
+    use anyhow::{anyhow, bail, Context, Result};
+    use log::warn;
+    use std::ffi::OsString;
+
+    use procfs::process::Process;
+
+    use crate::process_tree::ProcessTree;
+
+    pub trait Filter: std::fmt::Debug {
+        fn eval(&self, p: &Process, tree: &ProcessTree) -> bool;
+    }
+
+    #[derive(Debug)]
+    struct TrueFilter;
+    impl Filter for TrueFilter {
+        fn eval(&self, _p: &Process, _: &ProcessTree) -> bool {
+            true
+        }
+    }
+
+    #[derive(Debug)]
+    struct AndFilter {
+        pub children: Vec<Box<dyn Filter>>,
+    }
+    impl Filter for AndFilter {
+        fn eval(&self, p: &Process, tree: &ProcessTree) -> bool {
+            self.children.iter().all(|child| child.eval(&p, tree))
+        }
+    }
+
+    #[derive(Debug)]
+    struct OrFilter {
+        pub children: Vec<Box<dyn Filter>>,
+    }
+    impl Filter for OrFilter {
+        fn eval(&self, p: &Process, tree: &ProcessTree) -> bool {
+            self.children.iter().any(|child| child.eval(&p, tree))
+        }
+    }
+
+    #[derive(Debug)]
+    struct UidFilter {
+        pub uid: u32,
+    }
+    impl Filter for UidFilter {
+        fn eval(&self, p: &Process, _: &ProcessTree) -> bool {
+            self.uid == p.uid().unwrap()
+        }
+    }
+
+    #[derive(Debug)]
+    struct DescendantFilter {
+        pub pid: i32,
+    }
+    impl Filter for DescendantFilter {
+        fn eval(&self, p: &Process, tree: &ProcessTree) -> bool {
+            tree.descendants(self.pid, true).contains(&p.pid)
+        }
+    }
+
+    #[derive(Debug)]
+    struct PidFilter {
+        pub pid: i32,
+    }
+    impl Filter for PidFilter {
+        fn eval(&self, p: &Process, _: &ProcessTree) -> bool {
+            self.pid == p.pid
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct EnvironKVFilter {
+        pub key: String,
+        pub value: String,
+    }
+    impl Filter for EnvironKVFilter {
+        fn eval(&self, p: &Process, _: &ProcessTree) -> bool {
+            match p.environ() {
+                Ok(e) => e.get(&OsString::from(&self.key)) == Some(&OsString::from(&self.value)),
+                Err(_) => false,
+            }
+        }
+    }
+
+    /// uid(0)
+    /// env(ORACLE_SID, PROD)
+    /// or(uid[0], uid(1000))
+    /// and(env(ORACLE_SID, PROD), uid(1000))
+    /// descendant(1234)
+    pub fn parse(input: &str) -> Result<(Box<dyn Filter>, usize)> {
+        println!("Parsing: {input:?}");
+
+        let opening = input
+            .find('(')
+            .with_context(|| format!("Missing opening parenthesis"))?;
+
+        let name: String = input.chars().take(opening).collect();
+        dbg!(&name);
+
+        fn find_match_par(input: &str, idx: usize) -> Result<usize> {
+            let mut counter = 0;
+            let mut iter = input.char_indices().skip(idx);
+            loop {
+                let Some((idx, c)) = iter.next() else {
+                    bail!("Unbalanced parenthesis at end of string");
+                };
+
+                match c {
+                    '(' => counter += 1,
+                    ')' => counter -= 1,
+                    _ => (),
+                }
+
+                if counter < 0 {
+                    bail!("Too many closing parenthesis");
+                }
+                if counter == 0 {
+                    return Ok(idx);
+                }
+            }
+        }
+
+        let closing = find_match_par(input, opening).unwrap();
+        let inner: String = input
+            .chars()
+            .skip(opening + 1)
+            .take(closing - opening - 1)
+            .collect();
+        dbg!(opening, closing);
+        dbg!(&inner);
+
+        //if closing + 1 != input.chars().count() {
+        //    warn!("closing is not last");
+        //}
+
+        let ate = closing + 1;
+        dbg!(ate);
+
+        match name.as_str() {
+            "and" => {
+                let mut from = 0;
+                let mut inners = Vec::new();
+                loop {
+                    let Ok((parsed_inner, inner_ate)) = parse(&inner[from..]) else {
+                        bail!("Can't parse {:?}", &inner[from..]);
+                    };
+                    inners.push(parsed_inner);
+                    from += inner_ate + 1;
+
+                    if from > inner.chars().count() {
+                        break;
+                    }
+                }
+                if inners.is_empty() {
+                    bail!("Empty filter for {name:?}");
+                }
+                Ok((Box::new(AndFilter { children: inners }), ate))
+            }
+            "descendant" => {
+                let inner = inner
+                    .parse()
+                    .with_context(|| format!("Argument of 'descendant' filter must be a number"))?;
+                return Ok((Box::new(DescendantFilter { pid: inner }), ate));
+            }
+            "pid" => {
+                let inner = inner
+                    .parse()
+                    .with_context(|| format!("Argument of 'descendant' filter must be a number"))?;
+                return Ok((Box::new(PidFilter { pid: inner }), ate));
+            }
+            "uid" => {
+                //dbg!(&inner);
+                let inner = inner
+                    .parse()
+                    .with_context(|| format!("Argument of 'descendant' filter must be a number"))?;
+                //dbg!(&inner);
+
+                return Ok((Box::new(UidFilter { uid: inner }), ate));
+            }
+
+            "env_kv" => {
+                let mut iter = inner.split(',');
+                let key = iter
+                    .next()
+                    .with_context(|| format!("Invalid key for env_kv"))?
+                    .trim()
+                    .to_string();
+                let value = iter
+                    .next()
+                    .with_context(|| format!("Invalid value for env_kv"))?
+                    .trim()
+                    .to_string();
+
+                //dbg!(&key, &value);
+
+                return Ok((Box::new(EnvironKVFilter { key, value }), ate));
+            }
+            //"env_k" => {
+            //    let inner: String = input
+            //        .chars()
+            //        .skip(first_par + 1)
+            //        .take(last_par - first_par - 1)
+            //        .collect();
+
+            //    let inner = inner.parse().map_err(|_| ())?;
+
+            //    //dbg!(&key, &value);
+
+            //    return Ok(Box::new(EnvironKFilter { key }));
+            //}
+            "true" => {
+                return Ok((Box::new(TrueFilter), ate));
+            }
+            x => bail!("Unknown filter: {x:?}"),
+        }
+    }
+}
+
+mod process_tree {
+    use procfs::process::Process;
+
+    pub struct ProcessTree {
+        edges: Vec<(i32, i32)>,
+    }
+
+    impl ProcessTree {
+        pub fn new(all_processes: &[Process]) -> Self {
+            let mut tree = ProcessTree { edges: Vec::new() };
+
+            for p in all_processes.iter() {
+                let pid = p.pid;
+                let ppid = p.status().unwrap().ppid;
+
+                tree.edges.push((ppid, pid));
+            }
+            tree
+        }
+
+        pub fn ancestors(&self, pid: i32, include_first: bool) -> Vec<i32> {
+            let mut ancestors = if include_first { vec![pid] } else { Vec::new() };
+
+            let mut current = pid;
+            'outer: while current != 1 {
+                for &(ppid, pid) in &self.edges {
+                    if pid == current {
+                        ancestors.push(ppid);
+                        current = ppid;
+                        continue 'outer;
+                    }
+                }
+
+                // can't find parents up to 1, a process should have vanished in the meantime
+                // this will be a partial tree
+                return ancestors;
+            }
+
+            ancestors
+        }
+
+        pub fn descendants(&self, pid: i32, include_first: bool) -> Vec<i32> {
+            let mut ancestors = if include_first { vec![pid] } else { Vec::new() };
+
+            let mut current = pid;
+            'outer: loop {
+                for &(ppid, pid) in &self.edges {
+                    if ppid == current {
+                        ancestors.push(pid);
+                        current = pid;
+                        continue 'outer;
+                    }
+                }
+
+                return ancestors;
+            }
+        }
+    }
+}
+
 fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> ProcessGroupInfo {
     let mut pfns: ProcessGroupPfns = HashSet::default();
     let mut swap_pages = HashSet::new();
@@ -470,9 +752,21 @@ fn main() {
 
         #[arg(short = 'p', long, action = clap::ArgAction::Append)]
         split_pids: Vec<i32>,
+
+        #[arg(short, long)]
+        filter: Option<String>,
     }
 
     let cli = Cli::parse();
+
+    if let Some(filter) = cli.filter {
+        let (f, ate) = filters::parse(&filter).unwrap();
+        if filter.chars().count() != ate {
+            warn!("Ate {ate}, but filter is {} chars", filter.chars().count());
+        }
+        dbg!(f);
+    }
+    return;
 
     if cli.get_sga {
         // oracle shouldn't run as root
@@ -625,6 +919,8 @@ fn main() {
     let chrono = std::time::Instant::now();
     let all_processes: Vec<_> = procfs::process::all_processes().unwrap().collect();
     let processes_count = all_processes.len();
+
+    return;
 
     info!("Scanning {processes_count} processes");
     let pb = ProgressBar::new(processes_count as u64);
