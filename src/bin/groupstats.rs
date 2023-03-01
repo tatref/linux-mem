@@ -4,6 +4,11 @@
 #![allow(unused_imports)]
 #![feature(drain_filter)]
 
+// Process groups memory statistics tool
+// - Must run as root
+// - Don't forget to set a memory limit (-m/--memory-limit)
+//
+//
 // TODO:
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
@@ -187,7 +192,7 @@ mod splitters {
         where
             Self: 'b;
         fn __split(&mut self, processes: Vec<ProcessInfo>);
-        fn iter_groups<'b>(&'b self) -> Self::GroupIter<'b>;
+        fn iter_groups(&self) -> Self::GroupIter<'_>;
         fn collect_processes(self) -> Vec<ProcessInfo>;
 
         fn split(&mut self, processes: Vec<ProcessInfo>) {
@@ -292,7 +297,7 @@ mod splitters {
         type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u8, ProcessGroupInfo>;
 
         fn name(&self) -> String {
-            format!("PID list")
+            "PID list".to_string()
         }
         fn __split(&mut self, processes: Vec<ProcessInfo>) {
             let mut processes_info_0: Vec<ProcessInfo> = Vec::new();
@@ -339,7 +344,7 @@ mod splitters {
         type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u32, ProcessGroupInfo>;
 
         fn name(&self) -> String {
-            format!("UID")
+            "UID".to_string()
         }
         fn __split(&mut self, mut processes: Vec<ProcessInfo>) {
             let uids: HashSet<u32> = processes.iter().map(|p| p.uid).collect();
@@ -382,6 +387,16 @@ mod filters {
     }
 
     #[derive(Debug)]
+    struct NotFilter {
+        inner: Box<dyn Filter>,
+    }
+    impl Filter for NotFilter {
+        fn eval(&self, p: &Process, tree: &ProcessTree) -> bool {
+            !self.inner.eval(p, tree)
+        }
+    }
+
+    #[derive(Debug)]
     struct TrueFilter;
     impl Filter for TrueFilter {
         fn eval(&self, _p: &Process, _: &ProcessTree) -> bool {
@@ -403,7 +418,7 @@ mod filters {
     }
     impl Filter for AndFilter {
         fn eval(&self, p: &Process, tree: &ProcessTree) -> bool {
-            self.children.iter().all(|child| child.eval(&p, tree))
+            self.children.iter().all(|child| child.eval(p, tree))
         }
     }
 
@@ -413,7 +428,7 @@ mod filters {
     }
     impl Filter for OrFilter {
         fn eval(&self, p: &Process, tree: &ProcessTree) -> bool {
-            self.children.iter().any(|child| child.eval(&p, tree))
+            self.children.iter().any(|child| child.eval(p, tree))
         }
     }
 
@@ -487,7 +502,7 @@ mod filters {
 
         let opening = input
             .find('(')
-            .with_context(|| format!("Missing opening parenthesis"))?;
+            .with_context(|| "Missing opening parenthesis")?;
 
         let name: String = input.chars().take(opening).collect();
         debug!("operator: {:?}", name);
@@ -561,49 +576,57 @@ mod filters {
                     unreachable!()
                 }
             }
+            "not" => {
+                let (parsed_inner, ate_2) = parse(&inner)?;
+                if ate_2 < inner.chars().count() {
+                    warn!("Ignored garbage {:?}", &inner[ate_2..]);
+                }
+                Ok((
+                    Box::new(NotFilter {
+                        inner: parsed_inner,
+                    }),
+                    ate,
+                ))
+            }
             "descendants" => {
-                let inner = inner.parse().with_context(|| {
-                    format!("Argument of 'descendants' filter must be a number")
-                })?;
-                return Ok((Box::new(DescendantsFilter { pid: inner }), ate));
+                let inner = inner
+                    .parse()
+                    .with_context(|| "Argument of 'descendants' filter must be a number")?;
+                Ok((Box::new(DescendantsFilter { pid: inner }), ate))
             }
             "pid" => {
                 let inner = inner
                     .parse()
-                    .with_context(|| format!("Argument of 'descendant' filter must be a number"))?;
-                return Ok((Box::new(PidFilter { pid: inner }), ate));
+                    .with_context(|| "Argument of 'descendant' filter must be a number")?;
+                Ok((Box::new(PidFilter { pid: inner }), ate))
             }
             "uid" => {
                 let inner = inner
                     .parse()
-                    .with_context(|| format!("Argument of 'descendant' filter must be a number"))?;
-                return Ok((Box::new(UidFilter { uid: inner }), ate));
+                    .with_context(|| "Argument of 'descendant' filter must be a number")?;
+                Ok((Box::new(UidFilter { uid: inner }), ate))
             }
 
             "env_kv" => {
                 let mut iter = inner.split(',');
                 let key = iter
                     .next()
-                    .with_context(|| format!("Invalid key for env_kv"))?
+                    .with_context(|| "Invalid key for env_kv")?
                     .trim()
                     .to_string();
                 let value = iter
                     .next()
-                    .with_context(|| format!("Invalid value for env_kv"))?
+                    .with_context(|| "Invalid value for env_kv")?
                     .trim()
                     .to_string();
-                return Ok((Box::new(EnvironKVFilter { key, value }), ate));
+                Ok((Box::new(EnvironKVFilter { key, value }), ate))
             }
             "env_k" => {
                 let key = inner;
-                return Ok((Box::new(EnvironKFilter { key }), ate));
+                Ok((Box::new(EnvironKFilter { key }), ate))
             }
-            "true" => {
-                return Ok((Box::new(TrueFilter), ate));
-            }
-            "false" => {
-                return Ok((Box::new(FalseFilter), ate));
-            }
+            "true" => Ok((Box::new(TrueFilter), ate)),
+            "false" => Ok((Box::new(FalseFilter), ate)),
             x => bail!("Unknown filter: {x:?}"),
         }
     }
@@ -672,7 +695,7 @@ mod process_tree {
                 }
             }
 
-            return descendants;
+            descendants
         }
     }
 }
@@ -758,8 +781,36 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let global_chrono = std::time::Instant::now();
 
+    const CLAP_ABOUT: &str = r"Scan processes, generates memory statistics for groups of processes";
+
+    const AFTER_HELP: &str = r"/!\ Always set a memory limit /!\
+
+Defaults:
+    - memory limit: available memory
+    - threads: 1/2 CPU threads
+
+Available filters:
+    - true()
+    - false()
+    - or(..)
+    - and(..)
+    - not(..)
+    - uid(<uid>)
+    - descendants(<pid>)
+    - pid(<pid>)
+    - env_k(<env key>)
+    - env_kv(<env key, env value>)
+Limitation:
+    - ALL filters require trailing parenthesis
+    - Spaces are not allowed before/after commas
+Examples:
+    - All processes for user 1000: uid(1000)
+    - All processes that have a `DISPLAY` env variable (whatever its value is): env_k(DISPLAY)
+    - All processes that have a `SHELL` env variable with value `/bin/bash`: env_kv(SHELL,/bin/bash)
+    - All non-root processes that have a `DISPLAY` env variable: and(not(uid(0)),env_k(DISPLAY))";
+
     #[derive(Parser, Debug)]
-    #[command(author, version, about, long_about = None)]
+    #[command(author, version, about, long_about = None, after_help = AFTER_HELP)]
     struct Cli {
         #[arg(long, hide(true))]
         get_sga: bool,
@@ -791,7 +842,7 @@ fn main() {
         #[arg(short, long)]
         global_stats: bool,
 
-        #[arg(short, long)]
+        #[arg(short, long, help = "Filter to scan only a subset of processes")]
         filter: Option<String>,
     }
 
@@ -931,7 +982,7 @@ fn main() {
                 let flags = kpageflags
                     .get_range_info(start, end)
                     .expect("Can't read /proc/kpagecount");
-                let pfns: Vec<Pfn> = (start.0..end.0).map(|pfn| Pfn(pfn)).collect();
+                let pfns: Vec<Pfn> = (start.0..end.0).map(Pfn).collect();
 
                 use itertools::izip;
                 let v: Vec<(Pfn, PhysicalPageFlags)> = izip!(pfns, flags).collect();
@@ -1012,15 +1063,13 @@ fn main() {
             pb.set_message(format!("{my_rss}/{mem_limit} MiB"));
 
             if my_rss > mem_limit {
-                while let Ok(mut guard) = hit_memory_limit.try_lock() {
-                    if !*guard {
-                        warn!(
-"Hit memory limit ({} MiB), try increasing limit or filtering processes",
-                            mem_limit
-                            );
-                        *guard = true;
-                    }
-                    break;
+                let mut guard = hit_memory_limit.lock().unwrap();
+                if !*guard {
+                    warn!(
+                        "Hit memory limit ({} MiB), try increasing limit or filtering processes",
+                        mem_limit
+                    );
+                    *guard = true;
                 }
                 return None;
             }

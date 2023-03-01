@@ -19,9 +19,8 @@ fn handle_process(process: &Process) -> Result<HashSet<Pfn>, Box<dyn std::error:
         let page_end = (mem_end / page_size) as usize;
 
         // can't scan Vsyscall, so skip it
-        match &memory_map.pathname {
-            MMapPath::Vsyscall => continue,
-            _ => (),
+        if memory_map.pathname == MMapPath::Vsyscall {
+            continue;
         }
 
         for page_info in pagemap.get_range_info(page_start..page_end)? {
@@ -54,7 +53,7 @@ fn main() {
 
     let mut pfn_set = HashSet::new();
     for p in processes.iter() {
-        let some_pfns = match handle_process(&p) {
+        let some_pfns = match handle_process(p) {
             Ok(x) => x,
             Err(e) => {
                 println!("{:?}", e);

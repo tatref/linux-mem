@@ -21,7 +21,7 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
     // file descriptors
     let _fds = process.fd_count()?;
 
-    let memory_maps = snap::get_memory_maps_for_process(&process)?;
+    let memory_maps = snap::get_memory_maps_for_process(process)?;
 
     for (memory_map, pages) in memory_maps.iter() {
         // physical memory pages
