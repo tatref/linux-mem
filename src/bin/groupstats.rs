@@ -10,6 +10,8 @@
 //
 //
 // TODO:
+// - progress br for display
+// - add swap
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
 // - filters
@@ -172,6 +174,29 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
         pte,
         fds,
     })
+}
+
+fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> ProcessGroupInfo {
+    let mut pfns: ProcessGroupPfns = HashSet::default();
+    let mut swap_pages = HashSet::new();
+    let mut pte = 0;
+    let mut fds = 0;
+
+    for process_info in &processes_info {
+        pfns.par_extend(&process_info.pfns);
+        swap_pages.par_extend(&process_info.swap_pages);
+        pte += process_info.pte;
+        fds += process_info.fds;
+    }
+
+    ProcessGroupInfo {
+        name,
+        processes_info,
+        pfns,
+        swap_pages,
+        pte,
+        fds,
+    }
 }
 
 mod splitters {
@@ -697,29 +722,6 @@ mod process_tree {
 
             descendants
         }
-    }
-}
-
-fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> ProcessGroupInfo {
-    let mut pfns: ProcessGroupPfns = HashSet::default();
-    let mut swap_pages = HashSet::new();
-    let mut pte = 0;
-    let mut fds = 0;
-
-    for process_info in &processes_info {
-        pfns.par_extend(&process_info.pfns);
-        swap_pages.par_extend(&process_info.swap_pages);
-        pte += process_info.pte;
-        fds += process_info.fds;
-    }
-
-    ProcessGroupInfo {
-        name,
-        processes_info,
-        pfns,
-        swap_pages,
-        pte,
-        fds,
     }
 }
 
