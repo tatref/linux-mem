@@ -46,7 +46,7 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
                 PageInfo::SwapPage(swap_page) => {
                     let swap_type = swap_page.get_swap_type();
                     let offset = swap_page.get_swap_offset();
-                    println!("SWAP={swap_type}: 0x{offset:x}");
+                    println!("SWAP={swap_type}: 0x{offset:x} {swap_page:?}");
 
                     swap_pages.push((swap_type, offset));
                 }
