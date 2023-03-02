@@ -60,22 +60,16 @@ $ sudo ./groupstats --filter "or(uid(0),uid($(id -u)))" --split-env SHELL
 
 ### How it works
 1. list all processes
-1. exlude kernel processes, and apply filter
-1. For each process, compute the set of pages referenced
+1. exlude kernel processes, exclude processes matching filter
+1. For each process, compute the set of pages referenced (via `/proc/<pid>/smaps` and `/proc/<pid>/pagemap`)
 1. For each process group, compute the union of sets
-1. For each group, compute the difference between this groups' set and other, this gives USS (memory only referenced by processes in this group). RSS is memory referenced by this group that may also be referenced by processes in other groups
+1. For each group, compute the difference between this groups' set and others', this gives USS (memory only referenced by processes in this group). RSS is memory referenced by this group that may also be referenced by processes in other groups
 
 ![Memory groups Venn diagram RSS USS](./assets/Process_groups_RSS_USS.png)
 
 ### Building
 
-Require a fork of procfs until PR 254 is merged (https://github.com/eminence/procfs/pull/254)
-```
-$ ./builder.sh
-$ ./build.sh cargo b --release --bin groupstats
-$ ll target.el7/release/groupstats
--rwxr-xr-x 2 tatref tatref 9564720 Feb 21 23:02 target.el7/release/groupstats
-```
+Multiple hash functions can be used. Seems that `fxhash` is the best
 
 features :
 * `--features fxhash` (default)
@@ -84,16 +78,20 @@ features :
 * `--features metrohash`
 * `--features std`
 
-To build all releases:
+
+Require a fork of procfs until PR 254 is merged (https://github.com/eminence/procfs/pull/254)
+
+To compile for old glibc, install [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild)
+
+Via zigbuild
 ```
-for h in ahash std fnv metrohash fxhash
-do
-  for arch in x86-64 x86-64-v2 x86-64-v3
-  do
-    echo $h $arch
-    RUSTFLAGS="-C target-cpu=$arch" ./build.sh cargo b --release --bin groupstats --no-default-features --features $h
-  done
-done
+arch=x86-64-v2
+RUSTFLAGS="-C target-cpu=$arch" cargo zigbuild --release --bin groupstats --target x86_64-unknown-linux-gnu.2.12
+```
+
+Or if you don't need a portable binary
+```
+cargo build --release --bin groupstats
 ```
 
 ## [processes2png](src/bin/processes2png.rs)
