@@ -10,14 +10,12 @@
 //
 //
 // TODO:
-// - progress br for display
-// - add swap
+// - display: add swap
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
 // - filters
-//   - remove &str[]
+//   - remove &str[] / restrit to ascii
 // - remove unwraps
-// - test zigbuild for cross glibc builds
 
 use clap::Parser;
 use core::panic;
@@ -206,6 +204,7 @@ mod splitters {
     };
 
     use anyhow::Context;
+    use indicatif::ProgressBar;
     use itertools::Itertools;
     use log::{info, warn};
     use rayon::prelude::*;
@@ -228,14 +227,14 @@ mod splitters {
         fn split(&mut self, tree: &ProcessTree, processes: Vec<ProcessInfo>) {
             let chrono = std::time::Instant::now();
             self.__split(tree, processes);
-            info!("Split by {}: {:?}", self.name(), chrono.elapsed());
+            info!("Split by {}: took {:?}", self.name(), chrono.elapsed());
         }
 
         fn display(&'a self) {
             let chrono = std::time::Instant::now();
-            info!("Process groups by {}", self.name());
-            info!("group_name                     #procs     RSS MiB     USS MiB",);
-            info!("=============================================================");
+
+            let mut info = Vec::new();
+            let pb = ProgressBar::new(self.iter_groups().count() as u64);
             for group_1 in self.iter_groups() {
                 let mut other_pfns: ProcessGroupPfns = HashSet::default();
                 for group_2 in self.iter_groups() {
@@ -244,15 +243,24 @@ mod splitters {
                     }
                 }
 
-                let count = group_1.processes_info.len();
+                let processes_count = group_1.processes_info.len();
                 let rss = group_1.pfns.len() as u64 * procfs::page_size() / 1024 / 1024;
                 let uss = group_1.pfns.difference(&other_pfns).count() as u64 * procfs::page_size()
                     / 1024
                     / 1024;
 
+                info.push((group_1.name.clone(), processes_count, rss, uss));
+                pb.inc(1);
+            }
+            pb.finish_and_clear();
+
+            info!("Process groups by {}", self.name());
+            info!("group_name                     #procs     RSS MiB     USS MiB",);
+            info!("=============================================================");
+            for (name, processes_count, rss, uss) in info {
                 info!(
                     "{:<30}  {:>5}  {:>10}  {:>10}",
-                    group_1.name, count, rss, uss
+                    name, processes_count, rss, uss
                 );
             }
             info!("Display split by {}: {:?}", self.name(), chrono.elapsed());
