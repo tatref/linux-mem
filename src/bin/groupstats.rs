@@ -254,6 +254,9 @@ mod splitters {
             }
             pb.finish_and_clear();
 
+            // sort by RSS
+            info.sort_by(|a, b| b.2.cmp(&a.2));
+
             info!("Process groups by {}", self.name());
             info!("group_name                     #procs     RSS MiB     USS MiB",);
             info!("=============================================================");
