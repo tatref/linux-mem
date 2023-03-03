@@ -16,7 +16,6 @@
 // - bench memory usage
 // - filters
 //   - remove &str[]
-// - custom groups
 // - remove unwraps
 // - test zigbuild for cross glibc builds
 
@@ -43,7 +42,8 @@ use std::{
 use crate::{
     process_tree::ProcessTree,
     splitters::{
-        ProcessSplitter, ProcessSplitterByEnvVariable, ProcessSplitterByPids, ProcessSplitterByUid,
+        ProcessSplitter, ProcessSplitterCustomFilter, ProcessSplitterEnvVariable,
+        ProcessSplitterPids, ProcessSplitterUid,
     },
 };
 
@@ -205,24 +205,29 @@ mod splitters {
         ffi::{OsStr, OsString},
     };
 
+    use anyhow::Context;
     use itertools::Itertools;
-    use log::info;
+    use log::{info, warn};
     use rayon::prelude::*;
 
-    use crate::{processes_group_info, ProcessGroupInfo, ProcessGroupPfns, ProcessInfo};
+    use crate::{
+        filters::{self, Filter},
+        process_tree::ProcessTree,
+        processes_group_info, ProcessGroupInfo, ProcessGroupPfns, ProcessInfo,
+    };
 
     pub trait ProcessSplitter<'a> {
         fn name(&self) -> String;
         type GroupIter<'b: 'a>: Iterator<Item = &'a ProcessGroupInfo>
         where
             Self: 'b;
-        fn __split(&mut self, processes: Vec<ProcessInfo>);
+        fn __split(&mut self, tree: &ProcessTree, processes: Vec<ProcessInfo>);
         fn iter_groups(&self) -> Self::GroupIter<'_>;
         fn collect_processes(self) -> Vec<ProcessInfo>;
 
-        fn split(&mut self, processes: Vec<ProcessInfo>) {
+        fn split(&mut self, tree: &ProcessTree, processes: Vec<ProcessInfo>) {
             let chrono = std::time::Instant::now();
-            self.__split(processes);
+            self.__split(tree, processes);
             info!("Split by {}: {:?}", self.name(), chrono.elapsed());
         }
 
@@ -255,11 +260,81 @@ mod splitters {
         }
     }
 
-    pub struct ProcessSplitterByEnvVariable {
+    pub struct ProcessSplitterCustomFilter {
+        name: String,
+        filters: Vec<Box<dyn Filter>>,
+        names: Vec<String>,
+        groups: HashMap<String, ProcessGroupInfo>,
+    }
+    impl ProcessSplitterCustomFilter {
+        pub fn new(input: &str) -> Result<Self, Box<dyn std::error::Error>> {
+            let mut filters: Vec<Box<dyn Filter>> = Vec::new();
+            let mut names = Vec::new();
+            let groups = HashMap::new();
+            let mut counter = 0;
+
+            loop {
+                let (filter, ate) = filters::parse(&input[counter..])
+                    .with_context(|| format!("Invalid filter {:?}", &input[counter..]))?;
+                filters.push(filter);
+                names.push(input[counter..(counter + ate)].to_string());
+                counter += ate;
+                if counter + 1 > input.chars().count() {
+                    break;
+                }
+                counter += 1;
+            }
+
+            if counter < input.chars().count() {
+                warn!("Didn't parse full filter {input:?}");
+            }
+
+            Ok(Self {
+                name: input.to_string(),
+                filters,
+                names,
+                groups,
+            })
+        }
+    }
+    impl<'a> ProcessSplitter<'a> for ProcessSplitterCustomFilter {
+        fn name(&self) -> String {
+            self.name.clone()
+        }
+
+        type GroupIter<'b: 'a> = std::collections::hash_map::Values<'a, String, ProcessGroupInfo>;
+
+        fn __split(&mut self, tree: &ProcessTree, mut processes: Vec<ProcessInfo>) {
+            for (group_name, filter) in self.names.iter().zip(&self.filters) {
+                let some_processes = processes
+                    .drain_filter(|p| filter.eval(&p.process, tree))
+                    .collect();
+                let process_group_info = processes_group_info(some_processes, group_name.clone());
+                self.groups.insert(group_name.clone(), process_group_info);
+            }
+
+            // remaining processes not captured by any filter
+            let other_info = processes_group_info(processes, "Other".to_string());
+            self.groups.insert("Other".to_string(), other_info);
+        }
+
+        fn iter_groups<'x>(&'a self) -> Self::GroupIter<'a> {
+            self.groups.values()
+        }
+
+        fn collect_processes(self) -> Vec<ProcessInfo> {
+            self.groups
+                .into_values()
+                .flat_map(|group| group.processes_info)
+                .collect()
+        }
+    }
+
+    pub struct ProcessSplitterEnvVariable {
         var: OsString,
         groups: HashMap<Option<OsString>, ProcessGroupInfo>,
     }
-    impl ProcessSplitterByEnvVariable {
+    impl ProcessSplitterEnvVariable {
         pub fn new<S: AsRef<OsStr>>(var: S) -> Self {
             Self {
                 groups: HashMap::new(),
@@ -268,14 +343,14 @@ mod splitters {
         }
     }
 
-    impl<'a> ProcessSplitter<'a> for ProcessSplitterByEnvVariable {
+    impl<'a> ProcessSplitter<'a> for ProcessSplitterEnvVariable {
         type GroupIter<'b: 'a> =
             std::collections::hash_map::Values<'a, Option<OsString>, ProcessGroupInfo>;
 
         fn name(&self) -> String {
             format!("environment variable {}", self.var.to_string_lossy())
         }
-        fn __split(&mut self, mut processes: Vec<ProcessInfo>) {
+        fn __split(&mut self, _tree: &ProcessTree, mut processes: Vec<ProcessInfo>) {
             let sids: HashSet<Option<OsString>> = processes
                 .par_iter()
                 .map(|p| p.environ.get(&self.var).cloned())
@@ -305,12 +380,12 @@ mod splitters {
                 .collect()
         }
     }
-    pub struct ProcessSplitterByPids {
+    pub struct ProcessSplitterPids {
         pids: Vec<i32>,
         groups: BTreeMap<u8, ProcessGroupInfo>,
     }
 
-    impl ProcessSplitterByPids {
+    impl ProcessSplitterPids {
         pub fn new(pids: &[i32]) -> Self {
             Self {
                 pids: pids.to_vec(),
@@ -318,13 +393,13 @@ mod splitters {
             }
         }
     }
-    impl<'a> ProcessSplitter<'a> for ProcessSplitterByPids {
+    impl<'a> ProcessSplitter<'a> for ProcessSplitterPids {
         type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u8, ProcessGroupInfo>;
 
         fn name(&self) -> String {
             "PID list".to_string()
         }
-        fn __split(&mut self, processes: Vec<ProcessInfo>) {
+        fn __split(&mut self, _tree: &ProcessTree, processes: Vec<ProcessInfo>) {
             let mut processes_info_0: Vec<ProcessInfo> = Vec::new();
             let mut processes_info_1: Vec<ProcessInfo> = Vec::new();
 
@@ -354,24 +429,24 @@ mod splitters {
                 .collect()
         }
     }
-    pub struct ProcessSplitterByUid {
+    pub struct ProcessSplitterUid {
         groups: BTreeMap<u32, ProcessGroupInfo>,
     }
 
-    impl ProcessSplitterByUid {
+    impl ProcessSplitterUid {
         pub fn new() -> Self {
             Self {
                 groups: BTreeMap::new(),
             }
         }
     }
-    impl<'a> ProcessSplitter<'a> for ProcessSplitterByUid {
+    impl<'a> ProcessSplitter<'a> for ProcessSplitterUid {
         type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u32, ProcessGroupInfo>;
 
         fn name(&self) -> String {
             "UID".to_string()
         }
-        fn __split(&mut self, mut processes: Vec<ProcessInfo>) {
+        fn __split(&mut self, _tree: &ProcessTree, mut processes: Vec<ProcessInfo>) {
             let uids: HashSet<u32> = processes.iter().map(|p| p.uid).collect();
 
             for uid in uids {
@@ -841,6 +916,9 @@ Examples:
         #[arg(short = 'p', long, action = clap::ArgAction::Append)]
         split_pids: Vec<i32>,
 
+        #[arg(long, help = "Comma separated list of filters")]
+        custom_split: Option<String>,
+
         #[arg(short, long)]
         global_stats: bool,
 
@@ -866,7 +944,11 @@ Examples:
     // can't print anything before that line
 
     //dbg!(&cli);
-    //println!("type={}", std::any::type_name::<ProcessInfoPfns>());
+    if std::env::args().count() == 1 {
+        use clap::CommandFactory;
+        Cli::command().print_help().unwrap();
+        std::process::exit(0);
+    }
 
     let mem_limit = if let Some(m) = cli.mem_limit {
         m
@@ -897,6 +979,11 @@ Examples:
     }
 
     let page_size = procfs::page_size();
+
+    if let Some(filters) = &cli.custom_split {
+        // early parse filter
+        let _ = ProcessSplitterCustomFilter::new(filters).unwrap();
+    }
 
     if cli.scan_oracle {
         // find smons processes, and for each spawn a new process in the correct context to get database info
@@ -1097,6 +1184,7 @@ Examples:
         chrono.elapsed()
     );
     info!("{} vanished processes", vanished_processes_count);
+    info!("");
 
     if cli.global_stats {
         let total_pfns = processes_info
@@ -1110,9 +1198,18 @@ Examples:
         info!("");
     }
 
+    let processes_info = if let Some(filters) = cli.custom_split {
+        let mut splitter = ProcessSplitterCustomFilter::new(&filters).unwrap();
+        splitter.split(&tree, processes_info);
+        splitter.display();
+        splitter.collect_processes()
+    } else {
+        processes_info
+    };
+
     let processes_info: Vec<ProcessInfo> = if cli.split_uid {
-        let mut splitter = ProcessSplitterByUid::new();
-        splitter.split(processes_info);
+        let mut splitter = ProcessSplitterUid::new();
+        splitter.split(&tree, processes_info);
         splitter.display();
         splitter.collect_processes()
     } else {
@@ -1120,8 +1217,8 @@ Examples:
     };
 
     let processes_info: Vec<ProcessInfo> = if let Some(var) = cli.split_env {
-        let mut splitter = ProcessSplitterByEnvVariable::new(var);
-        splitter.split(processes_info);
+        let mut splitter = ProcessSplitterEnvVariable::new(var);
+        splitter.split(&tree, processes_info);
         splitter.display();
         splitter.collect_processes()
     } else {
@@ -1129,8 +1226,8 @@ Examples:
     };
 
     if !cli.split_pids.is_empty() {
-        let mut splitter = ProcessSplitterByPids::new(&cli.split_pids);
-        splitter.split(processes_info);
+        let mut splitter = ProcessSplitterPids::new(&cli.split_pids);
+        splitter.split(&tree, processes_info);
         splitter.display();
     }
 
@@ -1147,7 +1244,6 @@ Examples:
     let global_elapsed = global_chrono.elapsed();
 
     info!("vmhwm = {rssanon}");
-    info!("rssanon = {rssanon}");
     info!("vmrss = {vmrss}");
     info!("global_elapsed = {global_elapsed:?}");
 }
