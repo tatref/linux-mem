@@ -15,8 +15,9 @@
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
 // - filters
-//   - remove &str[] / restrit to ascii
+//   - remove &str[] / restrict to ascii
 // - remove unwraps
+// - custom hashset?
 
 use clap::Parser;
 use core::panic;
@@ -874,9 +875,9 @@ fn main() {
 
     const AFTER_HELP: &str = r"/!\ Always set a memory limit /!\
 
-Defaults:
-    - memory limit: available memory
-    - threads: 1/2 CPU threads
+Default limits:
+    - memory: available memory / 2
+    - threads: available CPU threads / 2
 
 Available filters:
     - true()
@@ -966,7 +967,7 @@ Examples:
         m
     } else {
         let meminfo = procfs::Meminfo::new().unwrap();
-        meminfo.mem_available.unwrap() / 1024 / 1024
+        meminfo.mem_available.unwrap() / 1024 / 1024 / 2
     };
     info!("Memory limit: {mem_limit} MiB");
     let threads = if let Some(t) = cli.threads {
@@ -975,6 +976,7 @@ Examples:
         std::thread::available_parallelism()
             .unwrap_or(NonZeroUsize::new(1).unwrap())
             .get()
+            / 2
     };
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
