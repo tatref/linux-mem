@@ -16,8 +16,6 @@
 // - test swap
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
-// - filters
-//   - remove &str[] / restrict to ascii
 // - remove unwraps
 // - custom hashset?
 
@@ -210,7 +208,7 @@ mod splitters {
         hash::BuildHasherDefault,
     };
 
-    use anyhow::Context;
+    use anyhow::{bail, Context};
     use indicatif::ProgressBar;
     use itertools::Itertools;
     use log::{info, warn};
@@ -304,7 +302,11 @@ mod splitters {
         groups: HashMap<String, ProcessGroupInfo>,
     }
     impl ProcessSplitterCustomFilter {
-        pub fn new(input: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        pub fn new(input: &str) -> anyhow::Result<Self> {
+            if !input.is_ascii() {
+                bail!("Filter must be ASCII");
+            }
+
             let mut filters: Vec<Box<dyn Filter>> = Vec::new();
             let mut names = Vec::new();
             let groups = HashMap::new();
