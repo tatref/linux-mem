@@ -11,8 +11,6 @@
 //
 // TODO:
 // - merge splitters
-// - display filtered processes
-// - help message when no args
 // - single pass
 // - clap commands for splits
 // - display filtered processes
@@ -998,8 +996,15 @@ Examples:
     // can't print anything before that line
 
     //dbg!(&cli);
-    //panic!();
-    if std::env::args().count() == 1 {
+    if !cli.scan_oracle
+        && !cli.scan_shm
+        && !cli.scan_kpageflags
+        && !cli.split_uid
+        && cli.split_env.is_none()
+        && cli.split_pids.is_empty()
+        && cli.split_custom.is_empty()
+        && !cli.list_processes
+    {
         use clap::CommandFactory;
         Cli::command().print_help().unwrap();
         std::process::exit(0);
