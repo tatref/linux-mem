@@ -10,6 +10,7 @@
 //
 //
 // TODO:
+// - merge splitters
 // - display: add swap
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
@@ -310,7 +311,7 @@ mod splitters {
     }
     impl<'a> ProcessSplitter<'a> for ProcessSplitterCustomFilter {
         fn name(&self) -> String {
-            self.name.clone()
+            "Custom splitter".to_string()
         }
 
         type GroupIter<'b: 'a> = std::collections::hash_map::Values<'a, String, ProcessGroupInfo>;
@@ -928,7 +929,7 @@ Examples:
         split_pids: Vec<i32>,
 
         #[arg(long, help = "Comma separated list of filters")]
-        custom_split: Option<String>,
+        custom_split: Vec<String>,
 
         #[arg(short, long)]
         global_stats: bool,
@@ -937,7 +938,7 @@ Examples:
         filter: Option<String>,
     }
 
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
 
     if cli.get_sga {
         // oracle shouldn't run as root
@@ -991,9 +992,11 @@ Examples:
 
     let page_size = procfs::page_size();
 
-    if let Some(filters) = &cli.custom_split {
-        // early parse filter
-        let _ = ProcessSplitterCustomFilter::new(filters).unwrap();
+    if !&cli.custom_split.is_empty() {
+        // early parse filters
+        for filter in &cli.custom_split {
+            let _ = ProcessSplitterCustomFilter::new(filter).unwrap();
+        }
     }
 
     if cli.scan_oracle {
@@ -1209,14 +1212,13 @@ Examples:
         info!("");
     }
 
-    let processes_info = if let Some(filters) = cli.custom_split {
-        let mut splitter = ProcessSplitterCustomFilter::new(&filters).unwrap();
+    let mut processes_info = processes_info;
+    while let Some(filter) = cli.custom_split.pop() {
+        let mut splitter = ProcessSplitterCustomFilter::new(&filter).unwrap();
         splitter.split(&tree, processes_info);
         splitter.display();
-        splitter.collect_processes()
-    } else {
-        processes_info
-    };
+        processes_info = splitter.collect_processes();
+    }
 
     let processes_info: Vec<ProcessInfo> = if cli.split_uid {
         let mut splitter = ProcessSplitterUid::new();
