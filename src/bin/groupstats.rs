@@ -330,10 +330,10 @@ mod splitters {
             self.groups.values()
         }
 
-        fn collect_processes(self) -> Vec<ProcessInfo> {
+        fn collect_processes(mut self) -> Vec<ProcessInfo> {
             self.groups
-                .into_values()
-                .flat_map(|group| group.processes_info)
+                .par_drain()
+                .flat_map(|(k, process_group_info)| process_group_info.processes_info)
                 .collect()
         }
     }
@@ -381,10 +381,10 @@ mod splitters {
         fn iter_groups<'x>(&'a self) -> Self::GroupIter<'a> {
             self.groups.values()
         }
-        fn collect_processes(self) -> Vec<ProcessInfo> {
+        fn collect_processes(mut self) -> Vec<ProcessInfo> {
             self.groups
-                .into_values()
-                .flat_map(|group| group.processes_info)
+                .par_drain()
+                .flat_map(|(k, process_group_info)| process_group_info.processes_info)
                 .collect()
         }
     }
