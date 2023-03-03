@@ -11,6 +11,11 @@
 //
 // TODO:
 // - merge splitters
+// - display filtered processes
+// - help message when no args
+// - single pass
+// - clap commands for splits
+// - display filtered processes
 // - display: add swap
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
@@ -46,6 +51,17 @@ use crate::{
         ProcessSplitterPids, ProcessSplitterUid,
     },
 };
+
+macro_rules! skip_fail {
+    ($res:expr) => {
+        match $res {
+            Ok(val) => val,
+            Err(e) => {
+                continue;
+            }
+        }
+    };
+}
 
 #[cfg(feature = "std")]
 type ProcessGroupPfns = HashSet<Pfn>;
@@ -546,6 +562,16 @@ mod filters {
     }
 
     #[derive(Debug)]
+    struct CommFilter {
+        pub comm: String,
+    }
+    impl Filter for CommFilter {
+        fn eval(&self, p: &Process, _: &ProcessTree) -> bool {
+            self.comm == p.stat().unwrap().comm
+        }
+    }
+
+    #[derive(Debug)]
     struct UidFilter {
         pub uid: u32,
     }
@@ -707,6 +733,7 @@ mod filters {
                     .with_context(|| "Argument of 'descendants' filter must be a number")?;
                 Ok((Box::new(DescendantsFilter { pid: inner }), ate))
             }
+            "comm" => Ok((Box::new(CommFilter { comm: inner }), ate)),
             "pid" => {
                 let inner = inner
                     .parse()
@@ -888,12 +915,15 @@ Available filters:
     - uid(<uid>)
     - descendants(<pid>)
     - pid(<pid>)
+    - comm(<comm>)
     - env_k(<env key>)
     - env_kv(<env key, env value>)
 Limitation:
+    - ALL filters require trailing parenthesis, even true/false
     - ALL filters require trailing parenthesis
     - Spaces are not allowed before/after commas
 Examples:
+    - All `cat` processes: comm(cat)
     - All processes for user 1000: uid(1000)
     - All processes that have a `DISPLAY` env variable (whatever its value is): env_k(DISPLAY)
     - All processes that have a `SHELL` env variable with value `/bin/bash`: env_kv(SHELL,/bin/bash)
@@ -930,13 +960,24 @@ Examples:
         split_pids: Vec<i32>,
 
         #[arg(long, help = "Comma separated list of filters")]
-        custom_split: Vec<String>,
+        split_custom: Vec<String>,
 
         #[arg(short, long)]
         global_stats: bool,
 
-        #[arg(short, long, help = "Filter to scan only a subset of processes")]
+        #[arg(
+            short,
+            long,
+            help = "Filter to scan only a subset of processes. See below for syntax"
+        )]
         filter: Option<String>,
+
+        #[arg(
+            short,
+            long,
+            help = "List processes that will be scanned, useful to validate filters"
+        )]
+        list_processes: bool,
     }
 
     let mut cli = Cli::parse();
@@ -957,6 +998,7 @@ Examples:
     // can't print anything before that line
 
     //dbg!(&cli);
+    //panic!();
     if std::env::args().count() == 1 {
         use clap::CommandFactory;
         Cli::command().print_help().unwrap();
@@ -994,9 +1036,9 @@ Examples:
 
     let page_size = procfs::page_size();
 
-    if !&cli.custom_split.is_empty() {
+    if !&cli.split_custom.is_empty() {
         // early parse filters
-        for filter in &cli.custom_split {
+        for filter in &cli.split_custom {
             let _ = ProcessSplitterCustomFilter::new(filter).unwrap();
         }
     }
@@ -1110,7 +1152,22 @@ Examples:
         .filter_map(|p| p.ok())
         .collect();
     let all_processes_count = all_processes.len();
+    info!("Total processes {all_processes_count}");
     let tree = ProcessTree::new(&all_processes);
+
+    // exclude kernel procs
+    let processes: Vec<Process> = all_processes
+        .into_iter()
+        .filter_map(|proc| {
+            if proc.cmdline().ok()?.is_empty() {
+                kernel_processes_count += 1;
+                None
+            } else {
+                Some(proc)
+            }
+        })
+        .collect();
+    info!("Excluded {} kernel processes", kernel_processes_count);
 
     let processes: Vec<Process> = if let Some(filter) = cli.filter {
         let (f, ate) = filters::parse(&filter).unwrap();
@@ -1118,10 +1175,7 @@ Examples:
             warn!("Ate {ate}, but filter is {} chars", filter.chars().count());
         }
 
-        let processes: Vec<Process> = all_processes
-            .into_iter()
-            .filter(|p| f.eval(p, &tree))
-            .collect();
+        let processes: Vec<Process> = processes.into_iter().filter(|p| f.eval(p, &tree)).collect();
         let processes_count = processes.len();
 
         if processes_count == 0 {
@@ -1138,22 +1192,20 @@ Examples:
 
         processes
     } else {
-        all_processes
+        processes
     };
+    info!("");
 
-    // exclude kernel procs
-    let processes: Vec<Process> = processes
-        .into_iter()
-        .filter_map(|proc| {
-            if proc.cmdline().ok()?.is_empty() {
-                kernel_processes_count += 1;
-                None
-            } else {
-                Some(proc)
-            }
-        })
-        .collect();
-    info!("{} kernel processes", kernel_processes_count);
+    if cli.list_processes {
+        info!("       uid        pid comm");
+        info!("==========================");
+        for (uid, pid, comm) in processes
+            .iter()
+            .filter_map(|p| Some((p.uid().ok()?, p.pid, p.stat().ok()?.comm)))
+        {
+            info!("{uid:>10} {pid:>10} {comm}");
+        }
+    }
 
     let processes_count = processes.len();
 
@@ -1199,7 +1251,7 @@ Examples:
         processes_info.len(),
         chrono.elapsed()
     );
-    info!("{} vanished processes", vanished_processes_count);
+    info!("{} processe(s) vanished", vanished_processes_count);
     info!("");
 
     if cli.global_stats {
@@ -1215,7 +1267,7 @@ Examples:
     }
 
     let mut processes_info = processes_info;
-    while let Some(filter) = cli.custom_split.pop() {
+    while let Some(filter) = cli.split_custom.pop() {
         let mut splitter = ProcessSplitterCustomFilter::new(&filter).unwrap();
         splitter.split(&tree, processes_info);
         splitter.display();
