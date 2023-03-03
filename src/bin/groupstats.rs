@@ -13,8 +13,7 @@
 // - merge splitters
 // - single pass
 // - clap commands for splits
-// - display filtered processes
-// - display: add swap
+// - test swap
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
 // - filters
@@ -36,6 +35,7 @@ use rayon::prelude::*;
 use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
+    hash::BuildHasherDefault,
     num::NonZeroUsize,
     os::unix::process::CommandExt,
     process::Command,
@@ -62,36 +62,26 @@ macro_rules! skip_fail {
 }
 
 #[cfg(feature = "std")]
-type ProcessGroupPfns = HashSet<Pfn>;
-#[cfg(feature = "std")]
-type ProcessInfoPfns = HashSet<Pfn>;
+type TheHash = std::collections::hash_map::DefaultHasher;
 
 #[cfg(feature = "fnv")]
-type ProcessGroupPfns = HashSet<Pfn, fnv::FnvBuildHasher>;
-#[cfg(feature = "fnv")]
-type ProcessInfoPfns = HashSet<Pfn, fnv::FnvBuildHasher>;
+type TheHash = fnv::FnvHasher;
 
 #[cfg(feature = "ahash")]
-type ProcessGroupPfns = HashSet<Pfn, ahash::RandomState>;
-#[cfg(feature = "ahash")]
-type ProcessInfoPfns = HashSet<Pfn, ahash::RandomState>;
+type TheHash = ahash::AHasher;
 
 #[cfg(feature = "metrohash")]
-type ProcessGroupPfns = HashSet<Pfn, metrohash::MetroBuildHasher>;
-#[cfg(feature = "metrohash")]
-type ProcessInfoPfns = HashSet<Pfn, metrohash::MetroBuildHasher>;
+type TheHash = metrohash::MetroHash;
 
 #[cfg(feature = "fxhash")]
-type ProcessGroupPfns = rustc_hash::FxHashSet<Pfn>;
-#[cfg(feature = "fxhash")]
-type ProcessInfoPfns = rustc_hash::FxHashSet<Pfn>;
+type TheHash = rustc_hash::FxHasher;
 
 pub struct ProcessInfo {
     process: Process,
     uid: u32,
     environ: HashMap<OsString, OsString>,
-    pfns: ProcessInfoPfns,
-    swap_pages: HashSet<(u64, u64)>,
+    pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
+    swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
     rss: u64,
     vsz: u64,
     pte: u64,
@@ -101,8 +91,8 @@ pub struct ProcessInfo {
 pub struct ProcessGroupInfo {
     name: String,
     processes_info: Vec<ProcessInfo>,
-    pfns: ProcessGroupPfns,
-    swap_pages: HashSet<(u64, u64)>,
+    pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
+    swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
     pte: u64,
     fds: usize,
 }
@@ -131,9 +121,9 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
     let page_size = procfs::page_size();
 
     // physical memory pages
-    let mut pfns: ProcessInfoPfns = Default::default();
+    let mut pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = Default::default();
     // swap type, offset
-    let mut swap_pages: HashSet<(u64, u64)> = HashSet::new();
+    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
 
     // size of pages in memory
     let mut rss = 0;
@@ -191,8 +181,8 @@ fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>>
 }
 
 fn processes_group_info(processes_info: Vec<ProcessInfo>, name: String) -> ProcessGroupInfo {
-    let mut pfns: ProcessGroupPfns = HashSet::default();
-    let mut swap_pages = HashSet::new();
+    let mut pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
+    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
     let mut pte = 0;
     let mut fds = 0;
 
@@ -217,18 +207,21 @@ mod splitters {
     use std::{
         collections::{BTreeMap, HashMap, HashSet},
         ffi::{OsStr, OsString},
+        hash::BuildHasherDefault,
     };
 
     use anyhow::Context;
     use indicatif::ProgressBar;
     use itertools::Itertools;
     use log::{info, warn};
+    use procfs::process::Pfn;
     use rayon::prelude::*;
+    use rustc_hash::FxHasher;
 
     use crate::{
         filters::{self, Filter},
         process_tree::ProcessTree,
-        processes_group_info, ProcessGroupInfo, ProcessGroupPfns, ProcessInfo,
+        processes_group_info, ProcessGroupInfo, ProcessInfo, TheHash,
     };
 
     pub trait ProcessSplitter<'a> {
@@ -252,34 +245,51 @@ mod splitters {
             let mut info = Vec::new();
             let pb = ProgressBar::new(self.iter_groups().count() as u64);
             for group_1 in self.iter_groups() {
-                let mut other_pfns: ProcessGroupPfns = HashSet::default();
+                let mut other_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
+                let mut other_swap: HashSet<(u64, u64), BuildHasherDefault<TheHash>> =
+                    HashSet::default();
                 for group_2 in self.iter_groups() {
                     if group_1 != group_2 {
                         other_pfns.par_extend(&group_2.pfns);
+                        other_swap.par_extend(&group_2.swap_pages);
                     }
                 }
 
                 let processes_count = group_1.processes_info.len();
-                let rss = group_1.pfns.len() as u64 * procfs::page_size() / 1024 / 1024;
-                let uss = group_1.pfns.difference(&other_pfns).count() as u64 * procfs::page_size()
+                let mem_rss = group_1.pfns.len() as u64 * procfs::page_size() / 1024 / 1024;
+                let mem_uss = group_1.pfns.difference(&other_pfns).count() as u64
+                    * procfs::page_size()
                     / 1024
                     / 1024;
 
-                info.push((group_1.name.clone(), processes_count, rss, uss));
+                let swap_rss = group_1.swap_pages.len() as u64 * procfs::page_size() / 1024 / 1024;
+                let swap_uss = group_1.swap_pages.difference(&other_swap).count() as u64
+                    * procfs::page_size()
+                    / 1024
+                    / 1024;
+
+                info.push((
+                    group_1.name.clone(),
+                    processes_count,
+                    mem_rss,
+                    mem_uss,
+                    swap_rss,
+                    swap_uss,
+                ));
                 pb.inc(1);
             }
             pb.finish_and_clear();
 
-            // sort by RSS
+            // sort by mem RSS
             info.sort_by(|a, b| b.2.cmp(&a.2));
 
             info!("Process groups by {}", self.name());
-            info!("group_name                     #procs     RSS MiB     USS MiB",);
-            info!("=============================================================");
-            for (name, processes_count, rss, uss) in info {
+            info!("group_name                     #procs     RSS MiB     USS MiB   SWAP RSS   SWAP USS",);
+            info!("===================================================================================");
+            for (name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss) in info {
                 info!(
-                    "{:<30}  {:>5}  {:>10}  {:>10}",
-                    name, processes_count, rss, uss
+                    "{:<30}  {:>5}  {:>10}  {:>10} {:>10} {:>10}",
+                    name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss
                 );
             }
             info!("Display split by {}: {:?}", self.name(), chrono.elapsed());
@@ -1079,7 +1089,8 @@ Examples:
 
     if cli.scan_shm {
         info!("Scanning shm...");
-        let mut shms: HashMap<procfs::Shm, HashSet<Pfn>> = HashMap::new();
+        let mut shms: HashMap<procfs::Shm, HashSet<Pfn>, BuildHasherDefault<TheHash>> =
+            HashMap::default();
         for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
             let pfns = snap::shm2pfns(&shm).unwrap();
             shms.insert(shm, pfns);
