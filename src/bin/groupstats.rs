@@ -10,8 +10,8 @@
 //
 //
 // TODO:
-// - merge splitters
-// - single pass
+// - merge splitters into CustomSplitters
+// - parallelize single pass
 // - clap commands for splits
 // - test swap
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
@@ -110,7 +110,7 @@ struct SmonInfo {
 }
 
 // return info memory maps info for standard process or None for kernel process
-fn get_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>> {
+fn get_process_info(process: Process) -> Result<ProcessInfo, Box<dyn std::error::Error>> {
     if process.cmdline()?.is_empty() {
         // already handled in main
         return Err(String::from("No info for kernel process"))?;
@@ -988,6 +988,13 @@ Examples:
             help = "List processes that will be scanned, useful to validate filters"
         )]
         list_processes: bool,
+
+        #[arg(
+            short,
+            long,
+            help = "Don't create groups, only list memory usage for filtered processes"
+        )]
+        single: bool,
     }
 
     let mut cli = Cli::parse();
@@ -1016,6 +1023,7 @@ Examples:
         && cli.split_pids.is_empty()
         && cli.split_custom.is_empty()
         && !cli.list_processes
+        && !cli.single
     {
         use clap::CommandFactory;
         Cli::command().print_help().unwrap();
@@ -1227,6 +1235,61 @@ Examples:
 
     let processes_count = processes.len();
 
+    if cli.single {
+        let single_chrono = std::time::Instant::now();
+
+        let mut mem: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
+        let mut swap: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
+        let mut scanned_processes = 0;
+        let mut vanished = 0;
+        let pb = ProgressBar::new(processes_count as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len}").unwrap());
+        for process in processes {
+            let my_rss = my_process.status().unwrap().vmrss.unwrap() / 1024;
+            pb.set_message(format!("{my_rss}/{mem_limit} MiB"));
+
+            if my_rss > mem_limit {
+                let mut guard = hit_memory_limit.lock().unwrap();
+                if !*guard {
+                    warn!(
+                        "Hit memory limit ({} MiB), try increasing limit or filtering processes",
+                        mem_limit
+                    );
+                    *guard = true;
+                }
+                break;
+            }
+            let process_info = match get_process_info(process) {
+                Ok(info) => info,
+                Err(_) => {
+                    vanished += 1;
+                    continue;
+                }
+            };
+            scanned_processes += 1;
+
+            mem.par_extend(&process_info.pfns);
+            swap.par_extend(&process_info.swap_pages);
+            pb.inc(1);
+        }
+        pb.finish_and_clear();
+
+        let mem_rss = mem.len() as u64 * page_size / 1024 / 1024;
+        let swap_rss = swap.len() as u64 * page_size / 1024 / 1024;
+
+        info!("");
+        info!(
+            "{} processes scanned in {:?}",
+            scanned_processes,
+            single_chrono.elapsed()
+        );
+        info!("mem RSS: {mem_rss}");
+        info!("swap RSS: {swap_rss}");
+
+        finalize(hit_memory_limit, mem_limit, &my_process, global_chrono);
+        return;
+    }
+
     info!("Scanning {processes_count} processes");
     let pb = ProgressBar::new(processes_count as u64);
     pb.set_style(ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len}").unwrap());
@@ -1250,7 +1313,7 @@ Examples:
             }
 
             if proc.pid as u32 != my_pid {
-                let Ok(info) = get_info(proc) else {return None;};
+                let Ok(info) = get_process_info(proc) else {return None;};
                 pb.inc(1);
                 Some(info)
             } else {
@@ -1316,19 +1379,28 @@ Examples:
         splitter.display();
     }
 
-    if *hit_memory_limit.lock().unwrap() {
-        warn!(
-            "Hit memory limit ({} MiB), try increasing limit or filtering processes",
-            mem_limit
-        )
+    finalize(hit_memory_limit, mem_limit, &my_process, global_chrono);
+
+    fn finalize(
+        hit_memory_limit: Arc<Mutex<bool>>,
+        mem_limit: u64,
+        my_process: &Process,
+        global_chrono: std::time::Instant,
+    ) {
+        if *hit_memory_limit.lock().unwrap() {
+            warn!(
+                "Hit memory limit ({} MiB), try increasing limit or filtering processes",
+                mem_limit
+            )
+        }
+
+        let vmhwm = my_process.status().unwrap().vmhwm.unwrap();
+        let rssanon = my_process.status().unwrap().rssanon.unwrap();
+        let vmrss = my_process.status().unwrap().vmrss.unwrap();
+        let global_elapsed = global_chrono.elapsed();
+
+        info!("vmhwm = {rssanon}");
+        info!("vmrss = {vmrss}");
+        info!("global_elapsed = {global_elapsed:?}");
     }
-
-    let vmhwm = my_process.status().unwrap().vmhwm.unwrap();
-    let rssanon = my_process.status().unwrap().rssanon.unwrap();
-    let vmrss = my_process.status().unwrap().vmrss.unwrap();
-    let global_elapsed = global_chrono.elapsed();
-
-    info!("vmhwm = {rssanon}");
-    info!("vmrss = {vmrss}");
-    info!("global_elapsed = {global_elapsed:?}");
 }
