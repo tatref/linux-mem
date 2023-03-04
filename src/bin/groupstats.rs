@@ -10,8 +10,8 @@
 //
 //
 // TODO:
-// - merge splitters into CustomSplitters
 // - parallelize single pass
+// - merge splitters into CustomSplitters
 // - clap commands for splits
 // - test swap
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
@@ -47,17 +47,6 @@ use crate::{
         ProcessSplitterPids, ProcessSplitterUid,
     },
 };
-
-macro_rules! skip_fail {
-    ($res:expr) => {
-        match $res {
-            Ok(val) => val,
-            Err(e) => {
-                continue;
-            }
-        }
-    };
-}
 
 #[cfg(feature = "std")]
 type TheHash = std::collections::hash_map::DefaultHasher;
@@ -577,7 +566,10 @@ mod filters {
     }
     impl Filter for CommFilter {
         fn eval(&self, p: &Process, _: &ProcessTree) -> bool {
-            self.comm == p.stat().unwrap().comm
+            match p.stat() {
+                Ok(stat) => stat.comm == self.comm,
+                Err(_) => false,
+            }
         }
     }
 
@@ -587,7 +579,10 @@ mod filters {
     }
     impl Filter for UidFilter {
         fn eval(&self, p: &Process, _: &ProcessTree) -> bool {
-            self.uid == p.uid().unwrap()
+            match p.uid() {
+                Ok(uid) => uid == self.uid,
+                Err(_) => false,
+            }
         }
     }
 
@@ -679,7 +674,7 @@ mod filters {
             }
         }
 
-        let closing = find_match_par(input, opening).unwrap();
+        let closing = find_match_par(input, opening)?;
         let inner: String = input
             .chars()
             .skip(opening + 1)

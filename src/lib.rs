@@ -10,7 +10,6 @@ use procfs::{
     process::{MMapPath, Pfn, Process},
     PhysicalMemoryMap, PhysicalPageFlags,
 };
-use rayon::prelude::ParallelBridge;
 use std::collections::{HashMap, HashSet};
 
 use procfs::{
