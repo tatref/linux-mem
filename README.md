@@ -24,7 +24,7 @@ Memory map details for single process
 
 /proc snapshot tool
 
-## [groupstats](src/bin/groupstats.rs)
+## [memstats](src/bin/memstats.rs)
 
 Memory usage for groups of processes. RSS and USS are computed from physical pages allocation, this is not a simple sum of each process.
 
@@ -33,29 +33,29 @@ Groups can be created by user, by environment variable, or by user provided PIDs
 Memory usage for my processes (id -u) and root's, grouped by env variable `SHELL`
 
 ```
-$ sudo ./groupstats --filter "or(uid(0),uid($(id -u)))" --split-env SHELL
-[2023-03-01T23:54:25Z INFO  groupstats] Memory limit: 2063 MiB
-[2023-03-01T23:54:25Z INFO  groupstats] Using 8 threads
-[2023-03-01T23:54:25Z INFO  groupstats] 
-[2023-03-01T23:54:25Z INFO  groupstats] Filter excluded 48 processes, 202 processes remaining
-[2023-03-01T23:54:25Z INFO  groupstats] 146 kernel processes
-[2023-03-01T23:54:25Z INFO  groupstats] Scanning 56 processes
-[2023-03-01T23:54:25Z INFO  groupstats] 
-[2023-03-01T23:54:25Z INFO  groupstats] Scanned 55 processes in 72.531698ms
-[2023-03-01T23:54:25Z INFO  groupstats] 1 vanished processes
-[2023-03-01T23:54:25Z INFO  groupstats::splitters] Split by environment variable SHELL: 18.241642ms
-[2023-03-01T23:54:25Z INFO  groupstats::splitters] Process groups by environment variable SHELL
-[2023-03-01T23:54:25Z INFO  groupstats::splitters] group_name                     #procs     RSS MiB     USS MiB
-[2023-03-01T23:54:25Z INFO  groupstats::splitters] =============================================================
-[2023-03-01T23:54:25Z INFO  groupstats::splitters] Some("/bin/sh")                     2          26          14
-[2023-03-01T23:54:25Z INFO  groupstats::splitters] None                               30         108          89
-[2023-03-01T23:54:25Z INFO  groupstats::splitters] Some("/bin/bash")                  23        2063        2048
-[2023-03-01T23:54:25Z INFO  groupstats::splitters] Display split by environment variable SHELL: 16.264999ms
-[2023-03-01T23:54:25Z INFO  groupstats::splitters] 
-[2023-03-01T23:54:25Z INFO  groupstats] vmhwm = 70468
-[2023-03-01T23:54:25Z INFO  groupstats] rssanon = 70468
-[2023-03-01T23:54:25Z INFO  groupstats] vmrss = 74188
-[2023-03-01T23:54:25Z INFO  groupstats] global_elapsed = 107.808383ms
+$ sudo ./memstats --filter "or(uid(0),uid($(id -u)))" groups --split-env SHELL
+[2023-03-01T23:54:25Z INFO  memstats] Memory limit: 2063 MiB
+[2023-03-01T23:54:25Z INFO  memstats] Using 8 threads
+[2023-03-01T23:54:25Z INFO  memstats] 
+[2023-03-01T23:54:25Z INFO  memstats] Filter excluded 48 processes, 202 processes remaining
+[2023-03-01T23:54:25Z INFO  memstats] 146 kernel processes
+[2023-03-01T23:54:25Z INFO  memstats] Scanning 56 processes
+[2023-03-01T23:54:25Z INFO  memstats] 
+[2023-03-01T23:54:25Z INFO  memstats] Scanned 55 processes in 72.531698ms
+[2023-03-01T23:54:25Z INFO  memstats] 1 vanished processes
+[2023-03-01T23:54:25Z INFO  memstats::splitters] Split by environment variable SHELL: 18.241642ms
+[2023-03-01T23:54:25Z INFO  memstats::splitters] Process groups by environment variable SHELL
+[2023-03-01T23:54:25Z INFO  memstats::splitters] group_name                     #procs     RSS MiB     USS MiB
+[2023-03-01T23:54:25Z INFO  memstats::splitters] =============================================================
+[2023-03-01T23:54:25Z INFO  memstats::splitters] Some("/bin/sh")                     2          26          14
+[2023-03-01T23:54:25Z INFO  memstats::splitters] None                               30         108          89
+[2023-03-01T23:54:25Z INFO  memstats::splitters] Some("/bin/bash")                  23        2063        2048
+[2023-03-01T23:54:25Z INFO  memstats::splitters] Display split by environment variable SHELL: 16.264999ms
+[2023-03-01T23:54:25Z INFO  memstats::splitters] 
+[2023-03-01T23:54:25Z INFO  memstats] vmhwm = 70468
+[2023-03-01T23:54:25Z INFO  memstats] rssanon = 70468
+[2023-03-01T23:54:25Z INFO  memstats] vmrss = 74188
+[2023-03-01T23:54:25Z INFO  memstats] global_elapsed = 107.808383ms
 ```
 
 ### How it works
@@ -86,12 +86,12 @@ To compile for old glibc, install [cargo-zigbuild](https://github.com/rust-cross
 Via zigbuild
 ```
 arch=x86-64-v2
-RUSTFLAGS="-C target-cpu=$arch" cargo zigbuild --release --bin groupstats --target x86_64-unknown-linux-gnu.2.12
+RUSTFLAGS="-C target-cpu=$arch" cargo zigbuild --release --bin memstats --target x86_64-unknown-linux-gnu.2.12
 ```
 
 Or if you don't need a portable binary
 ```
-cargo build --release --bin groupstats
+cargo build --release --bin memstats
 ```
 
 ## [processes2png](src/bin/processes2png.rs)
