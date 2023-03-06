@@ -168,10 +168,12 @@ pub fn print_counters(counters: [u64; FLAG_NAMES.len() + 1]) {
     //println!("{:15}: {}", "Total", total_size);
 }
 
-pub fn shm2pfns(shm: &Shm) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
+/// Scan each page of shm
+pub fn shm2pfns(
+    shm: &Shm,
+) -> Result<(HashSet<Pfn>, HashSet<(u64, u64)>), Box<dyn std::error::Error>> {
     let ptr: *mut libc::c_void;
     let shmid: libc::c_int = shm.shmid as i32;
-    let size = shm.size;
 
     // Map shared memory to current process
     {
@@ -191,7 +193,7 @@ pub fn shm2pfns(shm: &Shm) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
             let mut dummy = 0;
 
             // we must read each page to create a mapping
-            let slice = std::slice::from_raw_parts_mut(ptr, size as usize);
+            let slice = std::slice::from_raw_parts_mut(ptr, shm.size as usize);
             for val in slice {
                 dummy += *val;
             }
@@ -216,13 +218,18 @@ pub fn shm2pfns(shm: &Shm) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
     );
 
     let mut pfns = HashSet::new();
+    let mut swap_pages = HashSet::new();
     for page_info in pagemap.get_range_info((start as usize)..(end as usize))? {
         match page_info {
             PageInfo::MemoryPage(mem_page) => {
                 let pfn = mem_page.get_page_frame_number();
                 pfns.insert(pfn);
             }
-            PageInfo::SwapPage(_swap_page) => (),
+            PageInfo::SwapPage(swap_page) => {
+                let swap_type = swap_page.get_swap_type();
+                let swap_offset = swap_page.get_swap_offset();
+                swap_pages.insert((swap_type, swap_offset));
+            }
         }
     }
 
@@ -235,7 +242,7 @@ pub fn shm2pfns(shm: &Shm) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
         }
     }
 
-    Ok(pfns)
+    Ok((pfns, swap_pages))
 }
 
 /// Return size of (files_struct, task_struct) from kernel
@@ -268,8 +275,10 @@ pub fn get_kernel_datastructure_size(
     kernel_struct_sizes.get(&current_kernel).copied()
 }
 
+/// If optimize_shm if true, only return first 10 pages for a shared memory mapping
 pub fn get_memory_maps_for_process(
     process: &Process,
+    optimize_shm: bool,
 ) -> Result<Vec<(MemoryMap, Vec<PageInfo>)>, Box<dyn std::error::Error>> {
     let page_size = procfs::page_size();
 
@@ -285,6 +294,10 @@ pub fn get_memory_maps_for_process(
             // can't scan Vsyscall, so skip it
             if memory_map.pathname == MMapPath::Vsyscall {
                 return None;
+            }
+
+            if let (MMapPath::Vsys(_), true) = (&memory_map.pathname, optimize_shm) {
+                return Some((memory_map.clone(), Vec::new()));
             }
 
             let pages = match pagemap.get_range_info(index_start..index_end) {
