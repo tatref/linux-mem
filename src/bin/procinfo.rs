@@ -21,7 +21,7 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
     // file descriptors
     let _fds = process.fd_count()?;
 
-    let memory_maps = snap::get_memory_maps_for_process(process)?;
+    let memory_maps = snap::get_memory_maps_for_process(process, false)?;
 
     for (memory_map, pages) in memory_maps.iter() {
         // physical memory pages
@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // shm (key, id) -> PFNs
     let mut shm_pfns: HashMap<(i32, u64), HashSet<Pfn>> = HashMap::new();
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
-        let pfns = snap::shm2pfns(&shm).unwrap();
+        let (pfns, _swap_pages) = snap::shm2pfns(&shm).unwrap();
         shm_pfns.insert((shm.key, shm.shmid), pfns);
     }
 
