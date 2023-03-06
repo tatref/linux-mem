@@ -354,9 +354,9 @@ if verbose:
 else:
     loglevel = logging.INFO
 if sys.version_info < (3, 9):
-    logging.basicConfig(level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%I:%M:%S')
+    logging.basicConfig(level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%H:%M:%S')
 else:
-    logging.basicConfig(encoding='utf-8', level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%I:%M:%S')
+    logging.basicConfig(encoding='utf-8', level=loglevel, format='%(asctime)s line %(lineno)d %(levelname)s: %(message)s', datefmt='%H:%M:%S')
 logging.debug(args)
 
 
