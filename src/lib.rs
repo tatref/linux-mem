@@ -171,6 +171,7 @@ pub fn print_counters(counters: [u64; FLAG_NAMES.len() + 1]) {
 /// Scan each page of shm
 pub fn shm2pfns(
     shm: &Shm,
+    read: bool,
 ) -> Result<(HashSet<Pfn>, HashSet<(u64, u64)>), Box<dyn std::error::Error>> {
     let ptr: *mut libc::c_void;
     let shmid: libc::c_int = shm.shmid as i32;
@@ -192,10 +193,12 @@ pub fn shm2pfns(
             let ptr = ptr as *mut u8;
             let mut dummy = 0;
 
-            // we must read each page to create a mapping
-            let slice = std::slice::from_raw_parts_mut(ptr, shm.size as usize);
-            for val in slice {
-                dummy += *val;
+            if read {
+                // we must read each page to create a mapping
+                let slice = std::slice::from_raw_parts_mut(ptr, shm.size as usize);
+                for val in slice {
+                    dummy += *val;
+                }
             }
             // prevent optimization
             std::hint::black_box(dummy);

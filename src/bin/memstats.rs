@@ -10,12 +10,9 @@
 //
 //
 // TODO:
-// - shm stats
-// - shm swap
 // - parallelize single pass
 // - merge splitters into CustomSplitters
 // - clap commands for splits
-// - test swap
 // - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
 // - bench memory usage
 // - remove unwraps
@@ -87,8 +84,6 @@ pub struct ProcessGroupInfo {
     processes_info: Vec<ProcessInfo>,
     pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
     swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
-    shm_mem_pages: HashSet<Pfn>,
-    shm_swap_pages: HashSet<(u64, u64)>,
     referenced_shm: HashSet<Shm>,
     pte: u64,
     fds: usize,
@@ -154,7 +149,7 @@ fn get_process_info(
 
             for shm in shms_metadata.keys() {
                 if shm.key == *key && shm.shmid == memory_map.inode {
-                    referenced_shms.insert(shm.clone());
+                    referenced_shms.insert(*shm);
                     found = true;
                     break;
                 }
@@ -223,22 +218,6 @@ fn processes_group_info(
         fds += process_info.fds;
     }
 
-    let shm_mem_pages: HashSet<Pfn> = shms_metadata
-        .iter()
-        .filter(|(shm, shm_pfns)| referenced_shm.contains(*shm))
-        .map(|(shm, (shm_pfns, swap_pages))| shm_pfns)
-        .flatten()
-        .cloned()
-        .collect();
-
-    let shm_swap_pages: HashSet<(u64, u64)> = shms_metadata
-        .iter()
-        .filter(|(shm, shm_pfns)| referenced_shm.contains(*shm))
-        .map(|(shm, (shm_pfns, swap_pages))| swap_pages)
-        .flatten()
-        .cloned()
-        .collect();
-
     ProcessGroupInfo {
         name,
         processes_info,
@@ -247,8 +226,6 @@ fn processes_group_info(
         referenced_shm,
         pte,
         fds,
-        shm_mem_pages,
-        shm_swap_pages,
     }
 }
 
@@ -341,6 +318,20 @@ mod splitters {
                     / 1024;
 
                 // TODO: no differences for shm?
+                let shm_mem: u64 = group_1
+                    .referenced_shm
+                    .iter()
+                    .map(|shm| shm.rss)
+                    .sum::<u64>()
+                    / 1024
+                    / 1024;
+                let shm_swap: u64 = group_1
+                    .referenced_shm
+                    .iter()
+                    .map(|shm| shm.swap)
+                    .sum::<u64>()
+                    / 1024
+                    / 1024;
 
                 info.push((
                     group_1.name.clone(),
@@ -349,8 +340,8 @@ mod splitters {
                     mem_uss,
                     swap_rss,
                     swap_uss,
-                    group_1.shm_mem_pages.len() as u64 * procfs::page_size() / 1024 / 1024,
-                    group_1.shm_swap_pages.len() as u64 * procfs::page_size() / 1024 / 1024,
+                    shm_mem,
+                    shm_swap,
                 ));
                 pb.inc(1);
             }
@@ -360,14 +351,14 @@ mod splitters {
             info.sort_by(|a, b| b.2.cmp(&a.2));
 
             info!("Process groups by {} (MiB)", self.name());
-            info!("group_name                     #procs         RSS         USS   SWAP RSS   SWAP USS    SHM RSS   SHM SWAP",);
+            info!("group_name                     #procs         RSS         USS   SWAP RSS   SWAP USS    SHM MEM   SHM SWAP",);
             info!("=========================================================================================================");
-            for (name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss, shm_rss, shm_swap) in
+            for (name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss, shm_mem, shm_swap) in
                 info
             {
                 info!(
                     "{:<30}  {:>5}  {:>10}  {:>10} {:>10} {:>10} {:>10} {:>10}",
-                    name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss, shm_rss, shm_swap
+                    name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss, shm_mem, shm_swap
                 );
             }
             info!("Display split by {}: {:?}", self.name(), chrono.elapsed());
@@ -1052,9 +1043,6 @@ Examples:
     #[command(author, version, about, long_about = None, after_help = AFTER_HELP)]
     struct Cli {
         #[arg(long, hide(true))]
-        scan_oracle: bool,
-
-        #[arg(long, hide(true))]
         scan_kpageflags: bool,
 
         #[arg(short, long)]
@@ -1079,6 +1067,9 @@ Examples:
             help = "List processes that will be scanned, useful to validate filters"
         )]
         list_processes: bool,
+
+        #[arg(short, long, action = clap::ArgAction::Set, default_value_t = false)]
+        read_shm: bool,
 
         #[command(subcommand)]
         commands: Commands,
@@ -1154,60 +1145,79 @@ Examples:
 
     let page_size = procfs::page_size();
 
-    if cli.scan_oracle {
-        // find smons processes, and for each spawn a new process in the correct context to get database info
-        info!("Scanning Oracle instances...");
-        let instances: Vec<SmonInfo> = snap::find_smons()
-            .iter()
-            .filter_map(|(pid, uid, sid, home)| {
-                let smon_info = get_smon_info(*pid, *uid, sid.as_os_str(), home.as_os_str());
+    // find smons processes, and for each spawn a new process in the correct context to get database info
+    info!("Scanning Oracle instances...");
+    let instances: Vec<SmonInfo> = snap::find_smons()
+        .iter()
+        .filter_map(|(pid, uid, sid, home)| {
+            let smon_info = get_smon_info(*pid, *uid, sid.as_os_str(), home.as_os_str());
 
-                smon_info.ok()
-            })
-            .collect();
+            smon_info.ok()
+        })
+        .collect();
 
-        if !instances.is_empty() {
-            info!("Oracle instances:");
-            info!("SID               SGA MiB");
-            info!("==========================");
-            for instance in &instances {
-                info!(
-                    "{:<12} {:>12}",
-                    instance.sid.to_string_lossy(),
-                    instance.sga_size / 1024 / 1024
-                );
-            }
-            info!("");
-        } else {
-            warn!("Can't locate any Oracle instance");
+    if !instances.is_empty() {
+        info!("Oracle instances:");
+        info!("SID               SGA MiB");
+        info!("==========================");
+        for instance in &instances {
+            info!(
+                "{:<12} {:>12}",
+                instance.sid.to_string_lossy(),
+                instance.sga_size / 1024 / 1024
+            );
         }
+        info!("");
+    } else {
+        info!("Can't locate any Oracle instance");
+        info!("");
     }
 
     info!("Scanning shm...");
     let mut shms_metadata: ShmsMetadata = HashMap::default();
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
-        let (pfns, swap_pages) = snap::shm2pfns(&shm).unwrap();
+        let (pfns, swap_pages) = snap::shm2pfns(&shm, cli.read_shm).unwrap();
         shms_metadata.insert(shm, (pfns, swap_pages));
     }
 
     if !shms_metadata.is_empty() {
-        info!("Shared memory segments:");
-        info!("         key           id   Size MiB       PFNs    RSS MiB  % in RAM",);
-        info!("====================================================================",);
-        for (shm, (pfns, swap_pages)) in &shms_metadata {
+        let mut shms: Vec<Shm> = shms_metadata.keys().copied().collect();
+        shms.sort_by(|a, b| a.size.cmp(&b.size).reverse());
+
+        info!("Shared memory segments (MiB):");
+        info!("         key           id       Size        RSS       SWAP   USED%        SID",);
+        info!("=============================================================================",);
+        for shm in &shms {
+            let mut sid_list = Vec::new();
+            for instance in &instances {
+                let Ok(process) = Process::new(instance.pid) 
+                 else {
+                    continue;
+                };
+                let Ok(process_info) = get_process_info(process, &shms_metadata) else {
+                    continue;
+                };
+
+                if process_info.referenced_shms.contains(shm) {
+                    sid_list.push(instance.sid.to_string_lossy().to_string());
+                }
+            }
+
             info!(
-                "{:>12} {:>12} {:>10} {:>10} {:>10} {:>8.2}%",
+                "{:>12} {:>12} {:>10} {:>10} {:>10} {:>7.2} {:>10}",
                 shm.key,
                 shm.shmid,
                 shm.size / 1024 / 1024,
-                pfns.len(),
-                pfns.len() * page_size as usize / 1024 / 1024,
-                (pfns.len() as u64 * page_size) as f32 / shm.size as f32 * 100.
+                shm.rss / 1024 / 1024,
+                shm.swap / 1024 / 1024,
+                (shm.rss + shm.swap) as f32 / shm.size as f32 * 100.,
+                sid_list.join(" ")
             );
         }
         info!("");
     } else {
         info!("Can't locate any shared memory segment");
+        info!("");
     }
 
     // probably incorrect?
@@ -1310,6 +1320,7 @@ Examples:
         {
             info!("{uid:>10} {pid:>10} {comm}");
         }
+        info!("");
     }
 
     let my_pid = std::process::id();
@@ -1360,8 +1371,8 @@ Examples:
         let single_chrono = std::time::Instant::now();
         let hit_memory_limit = Arc::new(Mutex::new(false));
 
-        let mut mem: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
-        let mut swap: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
+        let mut mem_pages: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
+        let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
         let mut referenced_shm: HashSet<Shm> = HashSet::new();
         let mut scanned_processes = 0;
         let mut vanished = 0;
@@ -1391,35 +1402,26 @@ Examples:
             };
             scanned_processes += 1;
 
-            mem.par_extend(&process_info.pfns);
-            swap.par_extend(&process_info.swap_pages);
+            mem_pages.par_extend(&process_info.pfns);
+            swap_pages.par_extend(&process_info.swap_pages);
             referenced_shm.extend(process_info.referenced_shms);
             pb.inc(1);
         }
         pb.finish_and_clear();
 
-        let mut shm_mem = 0;
-        let mut shm_swap = 0;
-        for shm in referenced_shm.iter() {
-            shm_mem +=
-                shms_metadata.get(shm).unwrap().0.len() as u64 * procfs::page_size() / 1024 / 1024;
-            shm_swap +=
-                shms_metadata.get(shm).unwrap().1.len() as u64 * procfs::page_size() / 1024 / 1024;
+        let rss = mem_pages.len() as u64 * procfs::page_size() / 1024 / 1024;
+        let swap = swap_pages.len() as u64 * procfs::page_size() / 1024 / 1024;
+        let shm_mem: u64 = referenced_shm.iter().map(|shm| shm.rss).sum::<u64>() / 1024 / 1024;
+        let shm_swap: u64 = referenced_shm.iter().map(|shm| shm.swap).sum::<u64>() / 1024 / 1024;
 
-            mem.par_extend(&shms_metadata.get(shm).unwrap().0);
-            swap.par_extend(&shms_metadata.get(shm).unwrap().1);
-        }
-        let mem_rss = mem.len() as u64 * procfs::page_size() / 1024 / 1024;
-        let swap_rss = swap.len() as u64 * procfs::page_size() / 1024 / 1024;
-
-        info!("");
         info!(
             "{} processes scanned in {:?}",
             scanned_processes,
             single_chrono.elapsed()
         );
-        info!("mem RSS: {mem_rss}");
-        info!("swap RSS: {swap_rss}");
+        info!("");
+        info!("mem RSS: {rss}");
+        info!("swap RSS: {swap}");
         info!("shm mem: {shm_mem}");
         info!("shm swap: {shm_swap}");
 
@@ -1489,15 +1491,15 @@ Examples:
         let mut processes_info = processes_info;
         while let Some(filter) = split_custom.pop() {
             let mut splitter = ProcessSplitterCustomFilter::new(&filter).unwrap();
-            splitter.split(&tree, shms_metadata, processes_info);
-            splitter.display(&shms_metadata);
+            splitter.split(tree, shms_metadata, processes_info);
+            splitter.display(shms_metadata);
             processes_info = splitter.collect_processes();
         }
 
         let processes_info: Vec<ProcessInfo> = if split_uid {
             let mut splitter = ProcessSplitterUid::new();
-            splitter.split(&tree, shms_metadata, processes_info);
-            splitter.display(&shms_metadata);
+            splitter.split(tree, shms_metadata, processes_info);
+            splitter.display(shms_metadata);
             splitter.collect_processes()
         } else {
             processes_info
@@ -1505,8 +1507,8 @@ Examples:
 
         let processes_info: Vec<ProcessInfo> = if let Some(var) = split_env {
             let mut splitter = ProcessSplitterEnvVariable::new(var);
-            splitter.split(&tree, shms_metadata, processes_info);
-            splitter.display(&shms_metadata);
+            splitter.split(tree, shms_metadata, processes_info);
+            splitter.display(shms_metadata);
             splitter.collect_processes()
         } else {
             processes_info
@@ -1514,8 +1516,8 @@ Examples:
 
         if !split_pids.is_empty() {
             let mut splitter = ProcessSplitterPids::new(&split_pids);
-            splitter.split(&tree, shms_metadata, processes_info);
-            splitter.display(&shms_metadata);
+            splitter.split(tree, shms_metadata, processes_info);
+            splitter.display(shms_metadata);
         }
 
         finalize(hit_memory_limit, mem_limit, &my_process, global_chrono);
@@ -1539,6 +1541,7 @@ Examples:
         let vmrss = my_process.status().unwrap().vmrss.unwrap();
         let global_elapsed = global_chrono.elapsed();
 
+        info!("");
         info!("vmhwm = {rssanon}");
         info!("vmrss = {vmrss}");
         info!("global_elapsed = {global_elapsed:?}");

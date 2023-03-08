@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut h: HashMap<(i32, u64), HashSet<Pfn>> = HashMap::new();
 
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
-        let (pfns, _swap_pages) = snap::shm2pfns(&shm).expect("Got an error");
+        let (pfns, _swap_pages) = snap::shm2pfns(&shm, true).expect("Got an error");
 
         h.insert((shm.key, shm.shmid), pfns);
     }

@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // shm (key, id) -> PFNs
     let mut shm_pfns: HashMap<(i32, u64), HashSet<Pfn>> = HashMap::new();
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
-        let (pfns, _swap_pages) = snap::shm2pfns(&shm).unwrap();
+        let (pfns, _swap_pages) = snap::shm2pfns(&shm, true).unwrap();
         shm_pfns.insert((shm.key, shm.shmid), pfns);
     }
 
