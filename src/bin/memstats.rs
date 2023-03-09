@@ -18,6 +18,7 @@
 // - remove unwraps
 // - custom hashset?
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use core::panic;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -99,6 +100,8 @@ struct SmonInfo {
     pid: i32,
     sid: OsString,
     sga_size: u64,
+    processes: u64,
+    pga_size: u64,
     //sga_shm: Shm,
     //sga_pfns: HashSet<Pfn>,
 }
@@ -239,7 +242,7 @@ mod splitters {
     use anyhow::{bail, Context};
     use indicatif::ProgressBar;
     use itertools::Itertools;
-    use log::{info, warn};
+    use log::{info, warn, debug};
     use procfs::{page_size, process::Pfn, Shm};
     use rayon::prelude::*;
     use rustc_hash::FxHasher;
@@ -272,7 +275,7 @@ mod splitters {
         ) {
             let chrono = std::time::Instant::now();
             self.__split(tree, shms_metadata, processes);
-            info!("Split by {}: took {:?}", self.name(), chrono.elapsed());
+            debug!("Split by {}: took {:?}", self.name(), chrono.elapsed());
         }
 
         fn display(&'a self, shm_metadata: &ShmsMetadata) {
@@ -361,7 +364,7 @@ mod splitters {
                     name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss, shm_mem, shm_swap
                 );
             }
-            info!("Display split by {}: {:?}", self.name(), chrono.elapsed());
+            debug!("Display split by {}: {:?}", self.name(), chrono.elapsed());
             info!("");
         }
     }
@@ -958,7 +961,7 @@ fn get_smon_info(
     sid: &OsStr,
     home: &OsStr,
 ) -> Result<SmonInfo, Box<dyn std::error::Error>> {
-    let myself = std::env::args().next().unwrap();
+    let myself = std::env::current_exe()?;
 
     let mut lib = home.to_os_string();
     lib.push("/lib");
@@ -968,7 +971,7 @@ fn get_smon_info(
         .env("ORACLE_SID", sid)
         .env("ORACLE_HOME", home)
         .uid(uid)
-        .arg("get-sga")
+        .arg("get-db-info")
         .output()
         .expect("failed to execute process");
 
@@ -983,7 +986,11 @@ fn get_smon_info(
         }
     };
 
-    let sga_size: u64 = stdout.trim().parse().unwrap();
+    let sql_out: Result<Vec<u64>, _> = stdout.trim().split_ascii_whitespace().map(|s| s.parse::<u64>()).collect();
+    let sql_out = sql_out?;
+    let sga_size = sql_out[0];
+    let processes = sql_out[1];
+    let pga_size = sql_out[2];
 
     // we can't be sure it's the correct shm
     //let (sga_shm, sga_pfns) = procfs::Shm::new()?
@@ -998,6 +1005,8 @@ fn get_smon_info(
         //sga_pfns,
         //sga_shm,
         sga_size,
+        processes,
+        pga_size,
         sid: sid.to_os_string(),
     };
 
@@ -1078,7 +1087,7 @@ Examples:
     #[derive(Debug, Subcommand)]
     enum Commands {
         #[command(hide = true)]
-        GetSga,
+        GetDbInfo,
         Single,
         Groups {
             #[arg(short = 'e', long)]
@@ -1097,17 +1106,19 @@ Examples:
 
     let cli = Cli::parse();
 
-    if let Commands::GetSga = cli.commands {
+    if let Commands::GetDbInfo = cli.commands {
         // oracle shouldn't run as root
         assert_ne!(users::get_effective_uid(), 0);
 
         // subprogram to connect to instance and print sga size
         // We must have the correct context (user, env vars) to connect to database
-        let sga_size = snap::get_sga_size().unwrap();
+        let (sga_size, processes, pga) = snap::get_db_info().unwrap();
+
+
 
         // print value, can't use logger here
         // parent will grab that value in `get_smon_info`
-        println!("{sga_size}");
+        println!("{sga_size} {processes} {pga}");
         std::process::exit(0);
     }
     // can't print anything before that line
@@ -1152,19 +1163,27 @@ Examples:
         .filter_map(|(pid, uid, sid, home)| {
             let smon_info = get_smon_info(*pid, *uid, sid.as_os_str(), home.as_os_str());
 
-            smon_info.ok()
+            match smon_info {
+            Ok(x) => Some(x),
+                Err(e) => {
+                    warn!("Can't get DB info for {sid:?}");
+                    None
+                },
+            }
         })
         .collect();
 
     if !instances.is_empty() {
-        info!("Oracle instances:");
-        info!("SID               SGA MiB");
-        info!("==========================");
+        info!("Oracle instances (MiB):");
+        info!("SID                  SGA         PGA  PROCESSES");
+        info!("===============================================");
         for instance in &instances {
             info!(
-                "{:<12} {:>12}",
+                "{:<12} {:>12} {:>10} {:>10}",
                 instance.sid.to_string_lossy(),
-                instance.sga_size / 1024 / 1024
+                instance.sga_size / 1024 / 1024,
+                instance.pga_size / 1024 /1024,
+                instance.processes,
             );
         }
         info!("");
@@ -1216,7 +1235,7 @@ Examples:
         }
         info!("");
     } else {
-        info!("Can't locate any shared memory segment");
+        warn!("Can't locate any shared memory segment");
         info!("");
     }
 
@@ -1327,7 +1346,7 @@ Examples:
     let my_process = procfs::process::Process::new(my_pid as i32).unwrap();
 
     match cli.commands {
-        Commands::GetSga => unreachable!(),
+        Commands::GetDbInfo => unreachable!(),
         Commands::Single => {
             scan_single(
                 my_process,
@@ -1420,6 +1439,7 @@ Examples:
             single_chrono.elapsed()
         );
         info!("");
+        info!("Statistics:");
         info!("mem RSS: {rss}");
         info!("swap RSS: {swap}");
         info!("shm mem: {shm_mem}");

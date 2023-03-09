@@ -317,15 +317,22 @@ pub fn get_memory_maps_for_process(
 
 /// Connect to DB using OS auth and env vars
 /// return size of SGA
-pub fn get_sga_size() -> Result<u64, Box<dyn std::error::Error>> {
-    let conn = Connector::new("", "", "")
-        .external_auth(true)
-        .privilege(Privilege::Sysdba)
-        .connect()?;
+pub fn get_db_info() -> Result<(u64, u64, u64), Box<dyn std::error::Error>> {
+    let mut connector = Connector::new("", "", "");
+    let mut connector = connector.external_auth(true);
+    connector = if std::env::var("ORACLE_SID").unwrap().contains("+ASM") {
+        connector.privilege(Privilege::Sysasm)
+    } else {
+        connector.privilege(Privilege::Sysdba)
+    };
+    let conn = connector.connect()?;
     let sql = "select sum(value) from v$sga where name in ('Variable Size', 'Database Buffers')";
     let sga_size = conn.query_row_as::<u64>(sql, &[])?;
 
-    Ok(sga_size)
+    let sql = "select count(1), sum(pga_alloc_mem) from v$process";
+    let (processes, pga) = conn.query_row_as::<(u64, u64)>(sql, &[])?;
+
+    Ok((sga_size, processes, pga))
 }
 
 /// Find smons processes
@@ -336,7 +343,9 @@ pub fn find_smons() -> Vec<(i32, u32, OsString, OsString)> {
         .filter_map(|proc| {
             let cmdline = proc.as_ref().ok()?.cmdline().ok()?;
 
-            if cmdline.len() == 1 && cmdline[0].starts_with("ora_smon_") {
+            if cmdline.len() == 1
+                && (cmdline[0].starts_with("ora_smon_") || cmdline[0].starts_with("asm_smon_"))
+            {
                 Some(proc.ok()?)
             } else {
                 None
