@@ -20,7 +20,7 @@ Find Oracle database instances, connect to DB and run some request. Env variable
 Memory map details for single process
 
 # Bigger tools
-## [snap.py](proc_snap/snap.py)
+## [snap.py](proc_snap/README.md)
 
 /proc snapshot tool
 
