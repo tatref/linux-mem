@@ -7,6 +7,10 @@ A toolbox to inspect Linux memory
 
 Attach shared memory segments to current process
 
+## [shmem](src/bin/shmem.rs)
+
+Shared memory tool
+
 ## [connections](oracle-tools/src/bin/connections.rs)
 
 Establish lots of connections to Oracle database
