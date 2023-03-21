@@ -1,7 +1,6 @@
 // Detailed memory stats for a single process
 
 use procfs::process::{PageInfo, Pfn, Process};
-use std::collections::{HashMap, HashSet};
 
 fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
     if process.cmdline()?.is_empty() {
@@ -21,6 +20,7 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
     // file descriptors
     let _fds = process.fd_count()?;
 
+    let mut kpageflags = procfs::KPageFlags::new()?;
     let memory_maps = snap::get_memory_maps_for_process(process, false)?;
 
     for (memory_map, pages) in memory_maps.iter() {
@@ -30,8 +30,12 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
         let mut swap_pages: Vec<(u64, u64)> = Vec::new();
 
         println!(
-            "0x{:016x}-0x{:016x} {:?} {:?}",
-            memory_map.address.0, memory_map.address.1, memory_map.perms, memory_map.pathname,
+            "0x{:016x}-0x{:016x} {:?} {:?} {:?}",
+            memory_map.address.0,
+            memory_map.address.1,
+            memory_map.perms,
+            memory_map.inode,
+            memory_map.pathname,
         );
 
         for page in pages.iter() {
@@ -39,8 +43,11 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
                 PageInfo::MemoryPage(memory_page) => {
                     let pfn = memory_page.get_page_frame_number();
                     if pfn.0 != 0 {
-                        println!("PFN=0x{pfn:010x} {memory_page:?}");
+                        let physical_page = kpageflags.get_info(pfn).ok();
+                        println!("PFN=0x{pfn:010x} {memory_page:?} / {physical_page:?}");
                         pfns.push(pfn);
+                    } else {
+                        println!("PFN=0x0");
                     }
                 }
                 PageInfo::SwapPage(swap_page) => {
@@ -73,23 +80,15 @@ fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
 
-    let pids: Vec<i32> = args
+    let pid: i32 = args
         .iter()
-        .skip(1)
-        .map(|s| s.parse().expect("PID arg must be a number"))
-        .collect();
-    let pid = pids[0];
-
-    // shm (key, id) -> PFNs
-    let mut shm_pfns: HashMap<(i32, u64), HashSet<Pfn>> = HashMap::new();
-    for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
-        let (pfns, _swap_pages) = snap::shm2pfns(&shm, true).unwrap();
-        shm_pfns.insert((shm.key, shm.shmid), pfns);
-    }
+        .nth(1)
+        .map(|s| s.parse::<i32>().expect("PID arg must be a number"))
+        .expect("Insert PID");
 
     let process = procfs::process::Process::new(pid)?;
 
-    print_info(&process).unwrap();
+    print_info(&process)?;
 
     Ok(())
 }
