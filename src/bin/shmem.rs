@@ -1,6 +1,16 @@
 // Tool to play with Linux shared memory
 // C examples here: https://github.com/torvalds/linux/blob/master/tools/testing/selftests/vm/hugepage-shm.c
 //
+// Create a shared segment, and attach process to shm
+//
+// [tatref@oracle linux-mem]$ ./target/release/shmem create 0 10000000 false
+// INFO: got shmid 2
+//
+// [tatref@oracle linux-mem]$ ./target/release/shmem read 2 5000000 true
+// INFO: got ptr: 0x7f544f023000
+// [src/bin/shmem.rs:58] total = 0
+// ENTER to exit
+//
 
 use std::mem::MaybeUninit;
 
@@ -32,6 +42,42 @@ fn create_shm(key: i32, size: usize, huge_page: bool) {
         panic!("ERROR: shmget failed: {:?}", errno);
     }
     println!("INFO: got shmid {}", shmid);
+}
+
+fn madvise(shmid: i32, size: usize, advice: &str, _wait: bool) {
+    let flags = libc::SHM_RDONLY;
+
+    let ptr = unsafe { libc::shmat(shmid, std::ptr::null::<c_void>(), flags) };
+    if ptr == (-1isize) as *mut c_void {
+        let errno = unsafe { *libc::__errno_location() };
+
+        panic!("ERROR: shmat failed: {}", errno);
+    }
+
+    println!("INFO: got ptr: {:p}", ptr);
+
+    let advice = match advice {
+        "NORMAL" => libc::MADV_NORMAL,
+        "RANDOM" => libc::MADV_RANDOM,
+        "SEQUENTIAL" => libc::MADV_SEQUENTIAL,
+        "WILLNEED" => libc::MADV_WILLNEED,
+        "DONTNEED" => libc::MADV_DONTNEED,
+        "REMOVE" => libc::MADV_REMOVE,
+        "HWPOISON" => libc::MADV_HWPOISON,
+        "SOFT_OFFLINE" => libc::MADV_SOFT_OFFLINE,
+        "FREE" => libc::MADV_FREE,
+        "COLD" => libc::MADV_COLD,
+        "PAGEOUT" => libc::MADV_PAGEOUT,
+        x => panic!("Unknown advice: {x:?}"),
+    };
+    if 0 != unsafe { libc::madvise(ptr, size, advice) } {
+        let e = std::io::Error::last_os_error();
+        panic!("madvise failed: {:?}", e);
+    }
+
+    if _wait {
+        wait();
+    }
 }
 
 fn read_shm(shmid: i32, size: usize, _wait: bool) {
@@ -130,6 +176,20 @@ fn main() {
                 ])
             )
         .subcommand(
+            Command::new("madvise").args([
+                arg!(<SHMID>)
+                    .value_parser(value_parser!(i32))
+                    .help("Shmid from \"info\" command"),
+                arg!(<SIZE>)
+                    .value_parser(value_parser!(usize))
+                    .help("Size in bytes"),
+                arg!(<WAIT>)
+                    .value_parser(value_parser!(bool))
+                    .help("Wait for user input after finished reading"),
+                arg!(<ADVICE>)
+                ])
+            )
+        .subcommand(
             Command::new("read").args([
                 arg!(<SHMID>)
                     .value_parser(value_parser!(i32))
@@ -173,6 +233,14 @@ fn main() {
 
             write_shm(shmid, size);
         }
-        _ => unreachable!(),
+        Some(("madvise", sub)) => {
+            let shmid = *sub.get_one::<i32>("SHMID").unwrap();
+            let size = *sub.get_one::<usize>("SIZE").unwrap();
+            let wait = *sub.get_one::<bool>("WAIT").unwrap();
+            let advice = sub.get_one::<String>("ADVICE").unwrap();
+
+            madvise(shmid, size, &advice, wait);
+        }
+        _ => unimplemented!(),
     }
 }
