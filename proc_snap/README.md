@@ -20,7 +20,7 @@ Snapshot is inconsistent
   * GFS2 (since Linux 4.15)
 
 
-### OEL 7
+### Redhat 7
 
 Compiling latest `tar`
 
@@ -47,11 +47,11 @@ export PATH=./tar-1.34/src:$PATH
 python3 ./snap.py dump
 ```
 
-### OEL 8
+### Redhat 8
 
 TODO
 
-### OEL 9
+### Redhat 9
 
 ```
 yum install tar

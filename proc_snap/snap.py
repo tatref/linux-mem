@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # 
 # /proc snapshot tool
 #
@@ -256,6 +256,7 @@ def dump_kpageflags(iomem):
         
 
 def handle_proc_pid(proc_pid, skip_shm_pagemap):
+    '''Dump a single pid to `dump_dir`'''
     data_size = 0
     # proc_pid = /proc/1234
     pid = proc_pid[6:]
@@ -273,6 +274,7 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap):
             shm_refs, size = dump_pid_pagemap(pid, dest, skip_shm_pagemap=skip_shm_pagemap)
             data_size += size
         except Exception as e:
+            shm_refs = set()
             logging.warning("Failed to dump pagemap for {}".format(pid))
             logging.debug(e)
 
@@ -306,6 +308,7 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap):
             if mode == 'run':
                 shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file, follow_symlinks=False)
     except Exception as e:
+        shm_refs = set()
         print('WARNING: Skipping PID ' + pid + ': ' + str(e))
         if mode == 'run':
             shutil.rmtree(dest)
@@ -315,6 +318,7 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap):
 
 def test_seek_hole(dump_dir):
     '''Test if filesystem supports SEEK_HOLE/SEEK_DATA syscalls'''
+
     test_file_name = dump_dir.parent / 'test_seek'
     try:
         os.stat(test_file_name)
@@ -410,6 +414,10 @@ if mode == 'test':
     logging.info('Test mode: no file will be generated')
 
 if mode == 'run':
+    archive = dump_dir.with_suffix('.tar.gz')
+    if os.path.exists(archive):
+        logging.critical('Dump archive already exists {}'.format(archive))
+        sys.exit(1)
     os.makedirs(dump_dir)
     os.makedirs(dump_dir / 'proc')
 
@@ -508,8 +516,8 @@ if profile:
 
 def compress_tar_gz(dump_dir: Path):
     logging.info('Compressing archive using tar...')
-    arc = dump_dir.with_suffix('.tar.gz').as_posix()
-    cmd = 'tar czf ' + arc + ' --sparse -C ' + dump_dir.parent.as_posix() + ' ' + dump_dir.name
+    archive = dump_dir.with_suffix('.tar.gz').as_posix()
+    cmd = 'tar czf ' + archive + ' --sparse -C ' + dump_dir.parent.as_posix() + ' ' + dump_dir.name
     logging.debug(cmd)
     ret = subprocess.call(shlex.split(cmd))
     if ret != 0:
@@ -517,7 +525,7 @@ def compress_tar_gz(dump_dir: Path):
         sys.exit(1)
 
     shutil.rmtree(dump_dir)
-    logging.info('Done ' + arc + '.tar.gz')
+    logging.info('Done ' + archive + '.tar.gz')
 
 
 metadata['timings'] = {}

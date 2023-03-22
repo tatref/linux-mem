@@ -6,24 +6,22 @@
 
 // Process groups memory statistics tool
 // - Must run as root
-// - Don't forget to set a memory limit (-m/--memory-limit)
+// - Don't forget to set a memory limit (-m/--memory-limit) if you read shm pages (-r/--read-shm)
 //
 //
 // TODO:
 // - parallelize single pass
 // - merge splitters into CustomSplitters
 // - clap commands for splits
-// - benchmark compile flags https://rust-lang.github.io/packed_simd/perf-guide/target-feature/rustflags.html
-// - bench memory usage
 // - remove unwraps
-// - custom hashset?
+// - custom hashset for u64?
+//
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use core::panic;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
-#[allow(unused_imports)]
 use log::{debug, error, info, Level};
 use procfs::{
     page_size,
@@ -1046,7 +1044,8 @@ Examples:
     - All processes for user 1000: uid(1000)
     - All processes that have a `DISPLAY` env variable (whatever its value is): env_k(DISPLAY)
     - All processes that have a `SHELL` env variable with value `/bin/bash`: env_kv(SHELL,/bin/bash)
-    - All non-root processes that have a `DISPLAY` env variable: and(not(uid(0)),env_k(DISPLAY))";
+    - All non-root processes that have a `DISPLAY` env variable: and(not(uid(0)),env_k(DISPLAY))
+    ";
 
     #[derive(Parser, Debug)]
     #[command(author, version, about, long_about = None, after_help = AFTER_HELP)]
@@ -1077,7 +1076,7 @@ Examples:
         )]
         list_processes: bool,
 
-        #[arg(short, long, action = clap::ArgAction::Set, default_value_t = false)]
+        #[arg(short, long, action = clap::ArgAction::Set, default_value_t = false, help = "Read PFN for shm")]
         read_shm: bool,
 
         #[command(subcommand)]
@@ -1088,7 +1087,9 @@ Examples:
     enum Commands {
         #[command(hide = true)]
         GetDbInfo,
+        /// Single threaded process scan, can't do multiple groups, but memory efficient
         Single,
+        /// Multi threaded process scan, multiple groups, memory hungry
         Groups {
             #[arg(short = 'e', long)]
             split_env: Option<String>,
@@ -1235,7 +1236,7 @@ Examples:
         }
         info!("");
     } else {
-        warn!("Can't locate any shared memory segment");
+        info!("Can't locate any shared memory segment");
         info!("");
     }
 

@@ -2,28 +2,12 @@
 
 A toolbox to inspect Linux memory
 
-# Small tools
-## [shmat](src/bin/shmat.rs)
 
-Attach shared memory segments to current process
-
-## [shmem](src/bin/shmem.rs)
-
-Shared memory tool
-
-## [connections](oracle-tools/src/bin/connections.rs)
-
-Establish lots of connections to Oracle database
-
-## [find_instances](oracle-tools/src/bin/find_instances.rs)
-
-Find Oracle database instances, connect to DB and run some request. Env variables (SID, lib...) and user is found automatically.
-
+# Big tools
 ## [procinfo](src/bin/procinfo.rs)
 
 Memory map details for single process
 
-# Bigger tools
 ## [snap.py](proc_snap/README.md)
 
 /proc snapshot tool
@@ -107,3 +91,20 @@ For details, see [my blog post](https://tatref.github.io/blog/2023-visual-linux-
 
 ![gif](https://tatref.github.io/blog/2023-visual-linux-memory-compact/out.gif)
 
+
+# Small tools
+## [shmat](src/bin/shmat.rs)
+
+Attach shared memory segments to current process
+
+## [shmem](src/bin/shmem.rs)
+
+Shared memory tool
+
+## [connections](oracle-tools/src/bin/connections.rs)
+
+Establish lots of connections to Oracle database
+
+## [find_instances](oracle-tools/src/bin/find_instances.rs)
+
+Find Oracle database instances, connect to DB and run some request. Env variables (SID, lib...) and user are found automatically.
