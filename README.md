@@ -18,7 +18,7 @@ Memory usage for groups of processes. RSS and USS are computed from physical pag
 
 Groups can be created by user, by environment variable, or by user provided PIDs list
 
-Memory usage for my processes (id -u) and root's, grouped by env variable `SHELL`
+Example invocation: memory usage for my processes (id -u) and root's, grouped by env variable `SHELL`
 
 ```
 $ sudo ./memstats --filter "or(uid(0),uid($(id -u)))" groups --split-env SHELL
@@ -46,7 +46,7 @@ $ sudo ./memstats --filter "or(uid(0),uid($(id -u)))" groups --split-env SHELL
 
 ### How it works
 1. list all processes
-1. exlude kernel processes, exclude processes matching filter
+1. exlude kernel processes, exclude processes not matching filter
 1. For each process, compute the set of pages referenced (via `/proc/<pid>/smaps` and `/proc/<pid>/pagemap`)
 1. For each process group, compute the union of sets
 1. For each group, compute the difference between this groups' set and others', this gives USS (memory only referenced by processes in this group). RSS is memory referenced by this group that may also be referenced by processes in other groups
