@@ -87,6 +87,8 @@ Visual map of processes memory
 For details, see [my blog post](https://tatref.github.io/blog/2023-visual-linux-memory-compact/)
 
 
+Effect of memory compaction:
+
 ![gif](https://tatref.github.io/blog/2023-visual-linux-memory-compact/out.gif)
 
 
