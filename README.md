@@ -31,15 +31,13 @@ $ sudo ./memstats --filter "or(uid(0),uid($(id -u)))" groups --split-env SHELL
 [2023-03-01T23:54:25Z INFO  memstats] 
 [2023-03-01T23:54:25Z INFO  memstats] Scanned 55 processes in 72.531698ms
 [2023-03-01T23:54:25Z INFO  memstats] 1 vanished processes
-[2023-03-01T23:54:25Z INFO  memstats::splitters] Split by environment variable SHELL: 18.241642ms
-[2023-03-01T23:54:25Z INFO  memstats::splitters] Process groups by environment variable SHELL
-[2023-03-01T23:54:25Z INFO  memstats::splitters] group_name                     #procs     RSS MiB     USS MiB
-[2023-03-01T23:54:25Z INFO  memstats::splitters] =============================================================
-[2023-03-01T23:54:25Z INFO  memstats::splitters] Some("/bin/sh")                     2          26          14
-[2023-03-01T23:54:25Z INFO  memstats::splitters] None                               30         108          89
-[2023-03-01T23:54:25Z INFO  memstats::splitters] Some("/bin/bash")                  23        2063        2048
-[2023-03-01T23:54:25Z INFO  memstats::splitters] Display split by environment variable SHELL: 16.264999ms
-[2023-03-01T23:54:25Z INFO  memstats::splitters] 
+[2023-03-22T21:57:51Z INFO  memstats::splitters] 
+[2023-03-22T21:57:51Z INFO  memstats::splitters] Process groups by environment variable SHELL (MiB)
+[2023-03-22T21:57:51Z INFO  memstats::splitters] group_name                     #procs         RSS         USS   SWAP RSS   SWAP USS    SHM MEM   SHM SWAP
+[2023-03-22T21:57:51Z INFO  memstats::splitters] =========================================================================================================
+[2023-03-22T21:57:51Z INFO  memstats::splitters] None                               24          90          86          0          0          0          0
+[2023-03-22T21:57:51Z INFO  memstats::splitters] Some("/bin/bash")                   3           8           4          0          0          0          0
+[2023-03-22T21:57:51Z INFO  memstats::splitters] 
 [2023-03-01T23:54:25Z INFO  memstats] vmhwm = 70468
 [2023-03-01T23:54:25Z INFO  memstats] rssanon = 70468
 [2023-03-01T23:54:25Z INFO  memstats] vmrss = 74188
