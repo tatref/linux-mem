@@ -19,6 +19,7 @@
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
 use core::panic;
 use std::error::Error;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -95,10 +96,12 @@ impl PartialEq for ProcessGroupInfo {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 struct SmonInfo {
     pid: i32,
     sid: OsString,
     sga_size: u64,
+    large_pages: String,
     processes: u64,
     pga_size: u64,
     //sga_shm: Shm,
@@ -971,6 +974,7 @@ fn get_smon_info(
         .env("ORACLE_HOME", home)
         .uid(uid)
         .arg("get-db-info")
+        .args(["--pid", &format!("{pid}")])
         .output()
         .expect("failed to execute process");
 
@@ -985,11 +989,14 @@ fn get_smon_info(
         }
     };
 
-    let sql_out: Result<Vec<u64>, _> = stdout.trim().split_ascii_whitespace().map(|s| s.parse::<u64>()).collect();
-    let sql_out = sql_out?;
-    let sga_size = sql_out[0];
-    let processes = sql_out[1];
-    let pga_size = sql_out[2];
+    //let mut sql_out= stdout.trim().split_ascii_whitespace();
+    //let sga_size: u64 = sql_out.next().ok_or_else(|| "Can't parse SGA_SIZE").map(|s| s.parse())?;
+    //let processes: u64 = sql_out.next().ok_or_else(|| "Can't parse PROCESSES").parse()?;
+    //let pga_size :u64= sql_out.next().ok_or_else(|| "Can't parse PGA_SIZE").parse()?;
+    //let large_pages: String = sql_out.next().ok_or_else(|| "Can't parse LARGE_PAGES")?.to_string();
+
+    let smon_info: SmonInfo = serde_json::from_str(&stdout)?;
+    return Ok(smon_info);
 
     // we can't be sure it's the correct shm
     //let (sga_shm, sga_pfns) = procfs::Shm::new()?
@@ -999,17 +1006,18 @@ fn get_smon_info(
     //    .next()
     //    .unwrap();
 
-    let result = SmonInfo {
-        pid,
-        //sga_pfns,
-        //sga_shm,
-        sga_size,
-        processes,
-        pga_size,
-        sid: sid.to_os_string(),
-    };
+    //let result = SmonInfo {
+    //    pid,
+    //    //sga_pfns,
+    //    //sga_shm,
+    //    sga_size,
+    //    processes,
+    //    pga_size,
+    //    sid: sid.to_os_string(),
+    //    large_pages
+    //};
 
-    Ok(result)
+    //Ok(result)
 }
 
 fn main() {
@@ -1087,7 +1095,10 @@ Examples:
     #[derive(Debug, Subcommand)]
     enum Commands {
         #[command(hide = true)]
-        GetDbInfo,
+        GetDbInfo {
+            #[arg(long, required = true)]
+            pid: i32,
+        },
         /// Single threaded process scan, can't do multiple groups, but memory efficient
         Single,
         /// Multi threaded process scan, multiple groups, memory hungry
@@ -1108,19 +1119,23 @@ Examples:
 
     let cli = Cli::parse();
 
-    if let Commands::GetDbInfo = cli.commands {
+    if let Commands::GetDbInfo { pid } = cli.commands {
         // oracle shouldn't run as root
         assert_ne!(users::get_effective_uid(), 0);
 
         // subprogram to connect to instance and print sga size
         // We must have the correct context (user, env vars) to connect to database
-        let (sga_size, processes, pga) = snap::get_db_info().unwrap();
+        let (sga_size, processes, pga_size, large_pages) = snap::get_db_info().unwrap();
 
+        let sid = std::env::var_os("ORACLE_SID").expect("Missing ORACLE_SID");
 
+        let smon_info: SmonInfo = SmonInfo { pid, sid: sid.clone(), sga_size, large_pages, processes, pga_size };
+        let out = serde_json::to_string(&smon_info).expect(&format!("Can't serialize SmonInfo for {sid:?}"));
+        println!("{out}");
 
         // print value, can't use logger here
         // parent will grab that value in `get_smon_info`
-        println!("{sga_size} {processes} {pga}");
+        //println!("{sga_size} {processes} {pga_size} {large_pages}");
         std::process::exit(0);
     }
     // can't print anything before that line
@@ -1160,7 +1175,7 @@ Examples:
 
     // find smons processes, and for each spawn a new process in the correct context to get database info
     info!("Scanning Oracle instances...");
-    let instances: Vec<SmonInfo> = snap::find_smons()
+    let mut instances: Vec<SmonInfo> = snap::find_smons()
         .iter()
         .filter_map(|(pid, uid, sid, home)| {
             let smon_info = get_smon_info(*pid, *uid, sid.as_os_str(), home.as_os_str());
@@ -1175,17 +1190,20 @@ Examples:
         })
         .collect();
 
+    instances.sort_by(|a, b| a.sga_size.cmp(&b.sga_size).reverse());
+
     if !instances.is_empty() {
         info!("Oracle instances (MiB):");
-        info!("SID                  SGA         PGA  PROCESSES");
-        info!("===============================================");
+        info!("SID                  SGA         PGA  PROCESSES  LARGE_PAGES");
+        info!("============================================================");
         for instance in &instances {
             info!(
-                "{:<12} {:>12} {:>10} {:>10}",
+                "{:<12} {:>12} {:>10} {:>10} {:>12}",
                 instance.sid.to_string_lossy(),
                 instance.sga_size / 1024 / 1024,
                 instance.pga_size / 1024 /1024,
                 instance.processes,
+                instance.large_pages,
             );
         }
         info!("");
@@ -1360,7 +1378,7 @@ Examples:
     let my_process = procfs::process::Process::new(my_pid as i32).unwrap();
 
     match cli.commands {
-        Commands::GetDbInfo => unreachable!(),
+        Commands::GetDbInfo  { .. } => unreachable!(),
         Commands::Single => {
             scan_single(
                 my_process,

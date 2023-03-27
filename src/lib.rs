@@ -317,7 +317,7 @@ pub fn get_memory_maps_for_process(
 
 /// Connect to DB using OS auth and env vars
 /// return size of SGA
-pub fn get_db_info() -> Result<(u64, u64, u64), Box<dyn std::error::Error>> {
+pub fn get_db_info() -> Result<(u64, u64, u64, String), Box<dyn std::error::Error>> {
     let mut connector = Connector::new("", "", "");
     let mut connector = connector.external_auth(true);
     connector = if std::env::var("ORACLE_SID").unwrap().contains("+ASM") {
@@ -332,7 +332,10 @@ pub fn get_db_info() -> Result<(u64, u64, u64), Box<dyn std::error::Error>> {
     let sql = "select count(1), sum(pga_alloc_mem) from v$process";
     let (processes, pga) = conn.query_row_as::<(u64, u64)>(sql, &[])?;
 
-    Ok((sga_size, processes, pga))
+    let sql = "select value from v$parameter where name = 'use_large_pages'";
+    let large_pages = conn.query_row_as::<String>(sql, &[])?;
+
+    Ok((sga_size, processes, pga, large_pages))
 }
 
 /// Find smons processes
