@@ -20,6 +20,7 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use core::panic;
+use std::error::Error;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
 use log::{debug, error, info, Level};
@@ -1284,7 +1285,19 @@ Examples:
     let mut kernel_processes_count = 0;
     let all_processes: Vec<Process> = procfs::process::all_processes()
         .unwrap()
-        .filter_map(|p| p.ok())
+        .filter_map(|p| 
+        match p {
+            Ok(p) => Some(p),
+            Err(e) => {
+                match e {
+                    procfs::ProcError::NotFound(_) => None,
+                    x => {
+                        log::error!("Can't read process {x:?}");
+                        panic!()},
+                }
+            }
+        }
+        )
         .collect();
     let all_processes_count = all_processes.len();
     info!("Total processes {all_processes_count}");

@@ -33,7 +33,9 @@ tar = "0.4.37"
 # waiting for https://github.com/rust-lang/libc/pull/3159
 libc = { git = "https://github.com/tatref/libc", branch = "linux-madv" }
 
-# waiting for https://github.com/eminence/procfs/pull/254
+# waiting for
+# https://github.com/eminence/procfs/pull/254
+# https://github.com/eminence/procfs/pull/260
 procfs = { git = "https://github.com/tatref/procfs", branch = "tatref" }
 
 #egui = "0.20.0"
