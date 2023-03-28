@@ -975,8 +975,12 @@ fn get_smon_info(
         .uid(uid)
         .arg("get-db-info")
         .args(["--pid", &format!("{pid}")])
-        .output()
-        .expect("failed to execute process");
+        .output();
+        
+    let output = match output {
+        Ok(x) => x,
+        Err(e) => return Err(format!("Can't spawn proc for sid {sid:?}: {e:?}"))?,
+    };
 
     if !output.status.success() {
         return Err(format!("Can't get info for {sid:?}: {:?}", output))?;
@@ -989,35 +993,8 @@ fn get_smon_info(
         }
     };
 
-    //let mut sql_out= stdout.trim().split_ascii_whitespace();
-    //let sga_size: u64 = sql_out.next().ok_or_else(|| "Can't parse SGA_SIZE").map(|s| s.parse())?;
-    //let processes: u64 = sql_out.next().ok_or_else(|| "Can't parse PROCESSES").parse()?;
-    //let pga_size :u64= sql_out.next().ok_or_else(|| "Can't parse PGA_SIZE").parse()?;
-    //let large_pages: String = sql_out.next().ok_or_else(|| "Can't parse LARGE_PAGES")?.to_string();
-
     let smon_info: SmonInfo = serde_json::from_str(&stdout)?;
-    return Ok(smon_info);
-
-    // we can't be sure it's the correct shm
-    //let (sga_shm, sga_pfns) = procfs::Shm::new()?
-    //    .iter()
-    //    .filter(|shm| shm.size as u64 == sga_size)
-    //    .map(|shm| (shm.clone(), snap::shm2pfns(shm).unwrap()))
-    //    .next()
-    //    .unwrap();
-
-    //let result = SmonInfo {
-    //    pid,
-    //    //sga_pfns,
-    //    //sga_shm,
-    //    sga_size,
-    //    processes,
-    //    pga_size,
-    //    sid: sid.to_os_string(),
-    //    large_pages
-    //};
-
-    //Ok(result)
+    Ok(smon_info)
 }
 
 fn main() {
@@ -1183,7 +1160,7 @@ Examples:
             match smon_info {
             Ok(x) => Some(x),
                 Err(e) => {
-                    warn!("Can't get DB info for {sid:?}");
+                    warn!("Can't get DB info for {sid:?}: {e:?}");
                     None
                 },
             }
