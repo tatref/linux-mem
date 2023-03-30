@@ -975,23 +975,13 @@ fn get_smon_info(
         .uid(uid)
         .arg("get-db-info")
         .args(["--pid", &format!("{pid}")])
-        .output();
+        .output()?;
         
-    let output = match output {
-        Ok(x) => x,
-        Err(e) => return Err(format!("Can't spawn proc for sid {sid:?}: {e:?}"))?,
-    };
-
     if !output.status.success() {
-        return Err(format!("Can't get info for {sid:?}: {:?}", output))?;
+        return Err(format!("Can't get info for {sid:?} {uid} {home:?}: {:?}", output))?;
     }
 
-    let stdout = match String::from_utf8(output.stdout.clone()) {
-        Ok(s) => s,
-        Err(_) => {
-            return Err(format!("Can't read output for {sid:?}: {:?}", output))?;
-        }
-    };
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
     let smon_info: SmonInfo = serde_json::from_str(&stdout)?;
     Ok(smon_info)
