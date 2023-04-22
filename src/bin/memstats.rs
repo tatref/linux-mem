@@ -20,7 +20,6 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use core::panic;
 use std::error::Error;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
@@ -355,19 +354,19 @@ mod splitters {
             // sort by mem RSS
             info.sort_by(|a, b| b.2.cmp(&a.2));
 
-            info!("Process groups by {} (MiB)", self.name());
-            info!("group_name                     #procs         RSS         USS   SWAP RSS   SWAP USS    SHM MEM   SHM SWAP",);
-            info!("=========================================================================================================");
+            println!("Process groups by {} (MiB)", self.name());
+            println!("group_name                     #procs         RSS         USS   SWAP RSS   SWAP USS    SHM MEM   SHM SWAP",);
+            println!("=========================================================================================================");
             for (name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss, shm_mem, shm_swap) in
                 info
             {
-                info!(
+                println!(
                     "{:<30}  {:>5}  {:>10}  {:>10} {:>10} {:>10} {:>10} {:>10}",
                     name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss, shm_mem, shm_swap
                 );
             }
             debug!("Display split by {}: {:?}", self.name(), chrono.elapsed());
-            info!("");
+            println!("");
         }
     }
 
@@ -988,7 +987,7 @@ fn get_smon_info(
 }
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let global_chrono = std::time::Instant::now();
 
     const CLAP_ABOUT: &str = r"Scan processes, generates memory statistics for groups of processes";
@@ -1115,7 +1114,7 @@ Examples:
         let meminfo = procfs::Meminfo::new().unwrap();
         meminfo.mem_available.unwrap() / 1024 / 1024 / 2
     };
-    info!("Memory limit: {mem_limit} MiB");
+    debug!("Memory limit: {mem_limit} MiB");
     let threads = if let Some(t) = cli.threads {
         t
     } else {
@@ -1129,19 +1128,19 @@ Examples:
         .build_global()
         .unwrap();
 
-    info!("Using {threads} threads");
-    info!("");
+    debug!("Using {threads} threads");
+    debug!("");
 
     // Main program starts here
     if users::get_effective_uid() != 0 {
         error!("Run as root");
-        panic!();
+        std::process::exit(1);
     }
 
     let page_size = procfs::page_size();
 
     // find smons processes, and for each spawn a new process in the correct context to get database info
-    info!("Scanning Oracle instances...");
+    println!("Scanning Oracle instances...");
     let mut instances: Vec<SmonInfo> = snap::find_smons()
         .iter()
         .filter_map(|(pid, uid, sid, home)| {
@@ -1160,11 +1159,11 @@ Examples:
     instances.sort_by(|a, b| a.sga_size.cmp(&b.sga_size).reverse());
 
     if !instances.is_empty() {
-        info!("Oracle instances (MiB):");
-        info!("SID                  SGA         PGA  PROCESSES  LARGE_PAGES");
-        info!("============================================================");
+        println!("Oracle instances (MiB):");
+        println!("SID                  SGA         PGA  PROCESSES  LARGE_PAGES");
+        println!("============================================================");
         for instance in &instances {
-            info!(
+            println!(
                 "{:<12} {:>12} {:>10} {:>10} {:>12}",
                 instance.sid.to_string_lossy(),
                 instance.sga_size / 1024 / 1024,
@@ -1173,13 +1172,13 @@ Examples:
                 instance.large_pages,
             );
         }
-        info!("");
+        println!("");
     } else {
-        info!("Can't locate any Oracle instance");
-        info!("");
+        println!("Can't locate any Oracle instance");
+        println!("");
     }
 
-    info!("Scanning shm...");
+    println!("Scanning shm...");
     let mut shms_metadata: ShmsMetadata = HashMap::default();
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
         let (pfns, swap_pages) = snap::shm2pfns(&shm, cli.read_shm).unwrap();
@@ -1190,9 +1189,9 @@ Examples:
         let mut shms: Vec<Shm> = shms_metadata.keys().copied().collect();
         shms.sort_by(|a, b| a.size.cmp(&b.size).reverse());
 
-        info!("Shared memory segments (MiB):");
-        info!("         key           id       Size        RSS       SWAP   USED%        SID",);
-        info!("=============================================================================",);
+        println!("Shared memory segments (MiB):");
+        println!("         key           id       Size        RSS       SWAP   USED%        SID",);
+        println!("=============================================================================",);
         for shm in &shms {
             let mut sid_list = Vec::new();
             for instance in &instances {
@@ -1209,7 +1208,7 @@ Examples:
                 }
             }
 
-            info!(
+            println!(
                 "{:>12} {:>12} {:>10} {:>10} {:>10} {:>7.2} {:>10}",
                 shm.key,
                 shm.shmid,
@@ -1220,10 +1219,10 @@ Examples:
                 sid_list.join(" ")
             );
         }
-        info!("");
+        println!("");
     } else {
-        info!("Can't locate any shared memory segment");
-        info!("");
+        println!("Can't locate any shared memory segment");
+        println!("");
     }
 
     // probably incorrect?
@@ -1234,7 +1233,7 @@ Examples:
 
     //let mut kpagecount = procfs::KPageCount::new().expect("Can't open /proc/kpagecount");
     if cli.scan_kpageflags {
-        info!("Scanning /proc/kpageflags...");
+        println!("Scanning /proc/kpageflags...");
         let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
         let all_physical_pages: HashMap<Pfn, PhysicalPageFlags> = procfs::iomem()
             .expect("Can't read iomem")
@@ -1278,7 +1277,8 @@ Examples:
                     procfs::ProcError::NotFound(_) => None,
                     x => {
                         log::error!("Can't read process {x:?}");
-                        panic!()},
+                        std::process::exit(1);
+                    },
                 }
             }
         }
@@ -1327,18 +1327,18 @@ Examples:
     } else {
         processes
     };
-    info!("");
+    //println!("");
 
     if cli.list_processes {
-        info!("       uid        pid comm");
-        info!("==========================");
+        println!("       uid        pid comm");
+        println!("==========================");
         for (uid, pid, comm) in processes
             .iter()
             .filter_map(|p| Some((p.uid().ok()?, p.pid, p.stat().ok()?.comm)))
         {
-            info!("{uid:>10} {pid:>10} {comm}");
+            println!("{uid:>10} {pid:>10} {comm}");
         }
-        info!("");
+        println!("");
     }
 
     let my_pid = std::process::id();
@@ -1432,7 +1432,7 @@ Examples:
         let shm_mem: u64 = referenced_shm.iter().map(|shm| shm.rss).sum::<u64>() / 1024 / 1024;
         let shm_swap: u64 = referenced_shm.iter().map(|shm| shm.swap).sum::<u64>() / 1024 / 1024;
 
-        info!(
+        println!(
             "{} processes scanned in {:?}",
             scanned_processes,
             single_chrono.elapsed()
@@ -1462,7 +1462,7 @@ Examples:
         let processes_count = processes.len();
         let hit_memory_limit = Arc::new(Mutex::new(false));
         let chrono = std::time::Instant::now();
-        info!("Scanning {processes_count} processes");
+        println!("Scanning {processes_count} processes");
         let pb = ProgressBar::new(processes_count as u64);
         pb.set_style(ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len}").unwrap());
         let processes_info: Vec<ProcessInfo> = processes
@@ -1498,8 +1498,7 @@ Examples:
 
         let vanished_processes_count = processes_count - processes_info.len();
 
-        info!("");
-        info!(
+        println!(
             "Scanned {} processes in {:?}",
             processes_info.len(),
             chrono.elapsed()

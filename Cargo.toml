@@ -31,7 +31,8 @@ regex = "1.5.4"
 tar = "0.4.37"
 
 # waiting for https://github.com/rust-lang/libc/pull/3159
-libc = { git = "https://github.com/tatref/libc", branch = "linux-madv" }
+# version 0.2.142
+libc = { git = "https://github.com/rust-lang/libc" }
 
 # waiting for
 # https://github.com/eminence/procfs/pull/254
