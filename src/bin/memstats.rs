@@ -1139,6 +1139,37 @@ Examples:
 
     let page_size = procfs::page_size();
 
+    println!("Scanning /proc/kpageflags...");
+    let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
+    let all_physical_pages: HashMap<Pfn, PhysicalPageFlags> = procfs::iomem()
+        .expect("Can't read iomem")
+        .iter()
+        .filter_map(|(_indent, map)| {
+            if map.name == "System RAM" {
+                Some(map)
+            } else {
+                None
+            }
+        })
+        .map(|map| {
+            let (start, end) = map.get_range();
+
+            //let counts = kpagecount
+            //    .get_count_in_range(start, end)
+            //    .expect("Can't read /proc/kpagecount");
+            let flags = kpageflags
+                .get_range_info(start, end)
+                .expect("Can't read /proc/kpagecount");
+            let pfns: Vec<Pfn> = (start.0..end.0).map(Pfn).collect();
+
+            use itertools::izip;
+            let v: Vec<(Pfn, PhysicalPageFlags)> = izip!(pfns, flags).collect();
+
+            v
+        })
+        .flatten()
+        .collect();
+
     // find smons processes, and for each spawn a new process in the correct context to get database info
     println!("Scanning Oracle instances...");
     let mut instances: Vec<SmonInfo> = snap::find_smons()
@@ -1182,6 +1213,17 @@ Examples:
     let mut shms_metadata: ShmsMetadata = HashMap::default();
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
         let (pfns, swap_pages) = snap::shm2pfns(&shm, cli.read_shm).unwrap();
+        dbg!(&shm);
+        let mut total = 0;
+        let mut huge = 0;
+        for pfn in &pfns {
+            let flags = all_physical_pages.get(pfn).unwrap();
+            total += 1;
+            if flags.contains(PhysicalPageFlags::HUGE) {
+                huge += 1;
+            }
+        }
+        dbg!(huge, total);
         shms_metadata.insert(shm, (pfns, swap_pages));
     }
 
@@ -1232,38 +1274,6 @@ Examples:
     //    snap::get_kernel_datastructure_size(current_kernel).expect("Unknown kernel");
 
     //let mut kpagecount = procfs::KPageCount::new().expect("Can't open /proc/kpagecount");
-    if cli.scan_kpageflags {
-        println!("Scanning /proc/kpageflags...");
-        let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
-        let all_physical_pages: HashMap<Pfn, PhysicalPageFlags> = procfs::iomem()
-            .expect("Can't read iomem")
-            .iter()
-            .filter_map(|(_indent, map)| {
-                if map.name == "System RAM" {
-                    Some(map)
-                } else {
-                    None
-                }
-            })
-            .map(|map| {
-                let (start, end) = map.get_range();
-
-                //let counts = kpagecount
-                //    .get_count_in_range(start, end)
-                //    .expect("Can't read /proc/kpagecount");
-                let flags = kpageflags
-                    .get_range_info(start, end)
-                    .expect("Can't read /proc/kpagecount");
-                let pfns: Vec<Pfn> = (start.0..end.0).map(Pfn).collect();
-
-                use itertools::izip;
-                let v: Vec<(Pfn, PhysicalPageFlags)> = izip!(pfns, flags).collect();
-
-                v
-            })
-            .flatten()
-            .collect();
-    }
 
     // processes are scanned once and reused to get a more consistent view
     let mut kernel_processes_count = 0;
