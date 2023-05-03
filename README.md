@@ -16,32 +16,45 @@ Memory map details for single process
 
 Memory usage for groups of processes. RSS and USS are computed from physical pages allocation, this is not a simple sum of each process.
 
-Groups can be created by user, by environment variable, or by user provided PIDs list
+Groups can be created by user, by environment variable, by user provided PIDs list, or by custom filters
 
-Example invocation: memory usage for my processes (id -u) and root's, grouped by env variable `SHELL`
+Example invocation:
 
 ```
-$ sudo ./memstats --filter "or(uid(0),uid($(id -u)))" groups --split-env SHELL
-[2023-03-01T23:54:25Z INFO  memstats] Memory limit: 2063 MiB
-[2023-03-01T23:54:25Z INFO  memstats] Using 8 threads
-[2023-03-01T23:54:25Z INFO  memstats] 
-[2023-03-01T23:54:25Z INFO  memstats] Filter excluded 48 processes, 202 processes remaining
-[2023-03-01T23:54:25Z INFO  memstats] 146 kernel processes
-[2023-03-01T23:54:25Z INFO  memstats] Scanning 56 processes
-[2023-03-01T23:54:25Z INFO  memstats] 
-[2023-03-01T23:54:25Z INFO  memstats] Scanned 55 processes in 72.531698ms
-[2023-03-01T23:54:25Z INFO  memstats] 1 vanished processes
-[2023-03-22T21:57:51Z INFO  memstats::splitters] 
-[2023-03-22T21:57:51Z INFO  memstats::splitters] Process groups by environment variable SHELL (MiB)
-[2023-03-22T21:57:51Z INFO  memstats::splitters] group_name                     #procs         RSS         USS   SWAP RSS   SWAP USS    SHM MEM   SHM SWAP
-[2023-03-22T21:57:51Z INFO  memstats::splitters] =========================================================================================================
-[2023-03-22T21:57:51Z INFO  memstats::splitters] None                               24          90          86          0          0          0          0
-[2023-03-22T21:57:51Z INFO  memstats::splitters] Some("/bin/bash")                   3           8           4          0          0          0          0
-[2023-03-22T21:57:51Z INFO  memstats::splitters] 
-[2023-03-01T23:54:25Z INFO  memstats] vmhwm = 70468
-[2023-03-01T23:54:25Z INFO  memstats] rssanon = 70468
-[2023-03-01T23:54:25Z INFO  memstats] vmrss = 74188
-[2023-03-01T23:54:25Z INFO  memstats] global_elapsed = 107.808383ms
+$ sudo ./memstats groups --split-uid --split-env ORACLE_SID
+Scanning Oracle instances...
+Oracle instances (MiB):
+SID                  SGA         PGA  PROCESSES  LARGE_PAGES
+============================================================
+orcl                24512        772        288         TRUE
+
+Scanning shm...
+Shared memory segments (MiB):
+         key           id       Size        RSS       SWAP   USED%        SID
+=============================================================================
+           0            2      22528      22467          0   99.73       orcl
+           0            1       1984       1924          0   96.98       orcl
+           0            3         54         54          0   99.86       orcl
+           0            0         10         10          0  100.00       orcl
+  1966876864            4          0          0          0    5.88       orcl
+
+Scanning 314 processes
+Scanned 313 processes in 285.867627ms
+Process groups by UID (MiB)
+group_name                     #procs         RSS         USS   SWAP RSS   SWAP USS    SHM MEM   SHM SWAP
+=========================================================================================================
+oracle                            280        1398        1393          0          0      24456          0
+root                               28          97          85          0          0          0          0
+polkitd                             1          13           6          0          0          0          0
+postfix                             2           8           2          0          0          0          0
+dbus                                1           4           0          0          0          0          0
+rpc                                 1           3           0          0          0          0          0
+
+Process groups by environment variable ORACLE_SID (MiB)
+group_name                     #procs         RSS         USS   SWAP RSS   SWAP USS    SHM MEM   SHM SWAP
+=========================================================================================================
+Some("orcl")                      279        1395        1392          0          0      24456          0
+None                               34         109         106          0          0          0          0
 ```
 
 ### How it works
@@ -49,13 +62,13 @@ $ sudo ./memstats --filter "or(uid(0),uid($(id -u)))" groups --split-env SHELL
 1. exlude kernel processes, exclude processes not matching filter
 1. For each process, compute the set of pages referenced (via `/proc/<pid>/smaps` and `/proc/<pid>/pagemap`)
 1. For each process group, compute the union of sets
-1. For each group, compute the difference between this groups' set and others', this gives USS (memory only referenced by processes in this group). RSS is memory referenced by this group that may also be referenced by processes in other groups
+1. For each group, compute the difference between this groups' set and others', this gives the group USS (memory only referenced by processes in this group). RSS is memory referenced by this group that may also be referenced by processes in other groups
 
 ![Memory groups Venn diagram RSS USS](./assets/Process_groups_RSS_USS.png)
 
 ### Building
 
-Multiple hash functions can be used. Seems that `fxhash` is the best
+Multiple hash functions can be used. Seems that `fxhash` is the fastest
 
 features :
 * `--features fxhash` (default)
