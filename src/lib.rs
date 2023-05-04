@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 // https://biriukov.dev/docs/page-cache/4-page-cache-eviction-and-page-reclaim/
 // cat /proc/$(pidof cat)/smaps_rollup
 // cat /proc/$(pidof cat)/status
@@ -169,12 +171,15 @@ pub fn print_counters(counters: [u64; FLAG_NAMES.len() + 1]) {
 }
 
 /// Scan each page of shm
+/// Return None if shm uses any swap
 pub fn shm2pfns(
+    all_physical_pages: &HashMap<Pfn, PhysicalPageFlags>,
     shm: &Shm,
-    read: bool,
-) -> Result<(HashSet<Pfn>, HashSet<(u64, u64)>), Box<dyn std::error::Error>> {
+    force_read: bool,
+) -> Result<Option<(HashSet<Pfn>, HashSet<(u64, u64)>, usize, usize)>, Box<dyn std::error::Error>> {
     let ptr: *mut libc::c_void;
     let shmid: libc::c_int = shm.shmid as i32;
+    let must_read = shm.swap == 0 || force_read;
 
     // Map shared memory to current process
     {
@@ -193,8 +198,9 @@ pub fn shm2pfns(
             let ptr = ptr as *mut u8;
             let mut dummy = 0;
 
-            if read {
-                // we must read each page to create a mapping
+            // only read if shm is not in swap
+            if must_read {
+                // we must read each page to populate pagemap
                 let slice = std::slice::from_raw_parts_mut(ptr, shm.size as usize);
                 for val in slice {
                     dummy += *val;
@@ -236,6 +242,19 @@ pub fn shm2pfns(
         }
     }
 
+    let mut total_pages = 0;
+    let mut huge_pages = 0;
+    for pfn in &pfns {
+        let flags = all_physical_pages.get(pfn).unwrap();
+        total_pages += 1;
+        if flags.contains(PhysicalPageFlags::HUGE) {
+            // the doc states that HUGE flag is set only on HEAD pages, but seems like it also set on TAIL pages
+            huge_pages += 1;
+        }
+    }
+    let pages_4k = total_pages - huge_pages;
+    let pages_2M = huge_pages / 512;
+
     // detach shm
     unsafe {
         let ret = libc::shmdt(ptr);
@@ -245,7 +264,11 @@ pub fn shm2pfns(
         }
     }
 
-    Ok((pfns, swap_pages))
+    if must_read {
+        Ok(Some((pfns, swap_pages, pages_4k, pages_2M)))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Return size of (files_struct, task_struct) from kernel

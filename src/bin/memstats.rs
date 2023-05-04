@@ -65,7 +65,7 @@ type TheHash = metrohash::MetroHash;
 type TheHash = rustc_hash::FxHasher;
 
 type ShmsMetadata =
-    HashMap<procfs::Shm, (HashSet<Pfn>, HashSet<(u64, u64)>, usize, usize), BuildHasherDefault<TheHash>>;
+    HashMap<procfs::Shm, Option<(HashSet<Pfn>, HashSet<(u64, u64)>, usize, usize)>, BuildHasherDefault<TheHash>>;
 
 pub struct ProcessInfo {
     process: Process,
@@ -297,16 +297,26 @@ mod splitters {
                         other_referenced_shm.par_extend(&group_other.referenced_shm);
                     }
                 }
-                for (shm, (shm_pfns, swap_pages, _pages_4k, _pages_2M)) in shm_metadata {
-                    if other_referenced_shm.contains(shm) {
-                        other_pfns.par_extend(shm_pfns);
+                for (shm, meta) in shm_metadata {
+                    match meta {
+                        Some((shm_pfns, swap_pages, _pages_4k, _pages_2M)) => {
+                            if other_referenced_shm.contains(shm) {
+                                other_pfns.par_extend(shm_pfns);
+                            }
+                        },
+                        None => (),
                     }
                 }
 
                 let mut group_1_pfns = group_1.pfns.clone();
-                for (shm, (shm_pfns, swap_pages, _pages_4k, _pages_2M)) in shm_metadata {
-                    if group_1.referenced_shm.contains(shm) {
-                        group_1_pfns.par_extend(shm_pfns);
+                for (shm, meta) in shm_metadata {
+                    match meta {
+                        Some((shm_pfns, swap_pages, _pages_4k, _pages_2M)) => {
+                            if group_1.referenced_shm.contains(shm) {
+                                group_1_pfns.par_extend(shm_pfns);
+                            }
+                        },
+                        None => (),
                     }
                 }
                 let processes_count = group_1.processes_info.len();
@@ -1052,8 +1062,8 @@ Examples:
         )]
         list_processes: bool,
 
-        #[arg(short, long, action = clap::ArgAction::Set, default_value_t = false, help = "Read PFN for shm")]
-        read_shm: bool,
+        #[arg(short, long, action = clap::ArgAction::Set, default_value_t = false, help = "Force read PFN for shm, even if shm is in swap")]
+        force_read_shm: bool,
 
         #[command(subcommand)]
         commands: Commands,
@@ -1211,23 +1221,17 @@ Examples:
     }
 
     println!("Scanning shm...");
+    for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
+        // dummy scan shm so rss is in sync with number of pages
+        let x = snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm).unwrap();
+    }
+
     let mut shms_metadata: ShmsMetadata = HashMap::default();
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
-        let (pfns, swap_pages) = snap::shm2pfns(&shm, cli.read_shm).unwrap();
-        let mut total_pages = 0;
-        let mut huge_pages = 0;
-        for pfn in &pfns {
-            let flags = all_physical_pages.get(pfn).unwrap();
-            total_pages += 1;
-            if flags.contains(PhysicalPageFlags::HUGE) {
-                // the doc states that HUGE flag is set only on HEAD pages, but seems like it also set on TAIL pages
-                huge_pages += 1;
-            }
-        }
-        let pages_4k = total_pages - huge_pages;
-        let pages_2M = huge_pages / 512;
+        // TODO remove unwrap for Result
+        let x = snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm).unwrap();
 
-        shms_metadata.insert(shm, (pfns, swap_pages, pages_4k, pages_2M));
+        shms_metadata.insert(shm, x);
     }
 
     if !shms_metadata.is_empty() {
@@ -1253,7 +1257,11 @@ Examples:
                 }
             }
 
-            let (pfns, swap_pages, pages_4k, pages_2M) = shms_metadata.get(shm).unwrap();
+            // TODO: remove unwrap
+            let (pages_4k, pages_2M) = match shms_metadata.get(shm).unwrap() {
+                Some((_pfns, _swap_pages, pages_4k, pages_2M)) => (format!("{}", pages_4k), format!("{}", pages_2M)),
+                None => ("-".to_string(), "-".to_string()),
+            };
 
             println!(
                 "{:>12} {:>12} {:>10} {:>10} {:>8}/{:<8} {:>7} {:>7.2} {:>10}",
@@ -1267,6 +1275,7 @@ Examples:
                 (shm.rss + shm.swap) as f32 / shm.size as f32 * 100.,
                 sid_list.join(" ")
             );
+            // USED% can be >100% if size is not aligned with the underling pages: in that case, size<rss+swap
         }
         println!("");
     } else {

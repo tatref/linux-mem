@@ -1,7 +1,7 @@
 // Tool to play with Linux shared memory
 // C examples here: https://github.com/torvalds/linux/blob/master/tools/testing/selftests/vm/hugepage-shm.c
 //
-// Create a shared segment, and attach process to shm
+// Create a shared segment with hugepages, and attach process to shm
 //
 // [tatref@oracle linux-mem]$ ./target/release/shmem create 0 10000000 false
 // INFO: got shmid 2
@@ -56,18 +56,18 @@ fn madvise(shmid: i32, size: usize, advice: &str, _wait: bool) {
 
     println!("INFO: got ptr: {:p}", ptr);
 
-    let advice = match advice {
-        "NORMAL" => libc::MADV_NORMAL,
-        "RANDOM" => libc::MADV_RANDOM,
-        "SEQUENTIAL" => libc::MADV_SEQUENTIAL,
-        "WILLNEED" => libc::MADV_WILLNEED,
-        "DONTNEED" => libc::MADV_DONTNEED,
-        "REMOVE" => libc::MADV_REMOVE,
-        "HWPOISON" => libc::MADV_HWPOISON,
-        "SOFT_OFFLINE" => libc::MADV_SOFT_OFFLINE,
-        "FREE" => libc::MADV_FREE,
-        "COLD" => libc::MADV_COLD,
-        "PAGEOUT" => libc::MADV_PAGEOUT,
+    let advice = match advice.to_lowercase().as_str() {
+        "normal" => libc::MADV_NORMAL,
+        "random" => libc::MADV_RANDOM,
+        "sequential" => libc::MADV_SEQUENTIAL,
+        "willneed" => libc::MADV_WILLNEED,
+        "dontneed" => libc::MADV_DONTNEED,
+        "remove" => libc::MADV_REMOVE,
+        "hwpoison" => libc::MADV_HWPOISON,
+        "soft_offline" => libc::MADV_SOFT_OFFLINE,
+        "free" => libc::MADV_FREE,
+        "cold" => libc::MADV_COLD,
+        "pageout" => libc::MADV_PAGEOUT,
         x => panic!("Unknown advice: {x:?}"),
     };
     if 0 != unsafe { libc::madvise(ptr, size, advice) } {
