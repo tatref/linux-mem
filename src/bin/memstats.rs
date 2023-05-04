@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 #![allow(unreachable_code)]
 #![allow(unused_imports)]
+#![allow(non_snake_case)]
 #![feature(drain_filter)]
 
 // Process groups memory statistics tool
@@ -64,7 +65,7 @@ type TheHash = metrohash::MetroHash;
 type TheHash = rustc_hash::FxHasher;
 
 type ShmsMetadata =
-    HashMap<procfs::Shm, (HashSet<Pfn>, HashSet<(u64, u64)>), BuildHasherDefault<TheHash>>;
+    HashMap<procfs::Shm, (HashSet<Pfn>, HashSet<(u64, u64)>, usize, usize), BuildHasherDefault<TheHash>>;
 
 pub struct ProcessInfo {
     process: Process,
@@ -296,14 +297,14 @@ mod splitters {
                         other_referenced_shm.par_extend(&group_other.referenced_shm);
                     }
                 }
-                for (shm, (shm_pfns, swap_pages)) in shm_metadata {
+                for (shm, (shm_pfns, swap_pages, _pages_4k, _pages_2M)) in shm_metadata {
                     if other_referenced_shm.contains(shm) {
                         other_pfns.par_extend(shm_pfns);
                     }
                 }
 
                 let mut group_1_pfns = group_1.pfns.clone();
-                for (shm, (shm_pfns, swap_pages)) in shm_metadata {
+                for (shm, (shm_pfns, swap_pages, _pages_4k, _pages_2M)) in shm_metadata {
                     if group_1.referenced_shm.contains(shm) {
                         group_1_pfns.par_extend(shm_pfns);
                     }
@@ -1213,18 +1214,20 @@ Examples:
     let mut shms_metadata: ShmsMetadata = HashMap::default();
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
         let (pfns, swap_pages) = snap::shm2pfns(&shm, cli.read_shm).unwrap();
-        dbg!(&shm);
-        let mut total = 0;
-        let mut huge = 0;
+        let mut total_pages = 0;
+        let mut huge_pages = 0;
         for pfn in &pfns {
             let flags = all_physical_pages.get(pfn).unwrap();
-            total += 1;
+            total_pages += 1;
             if flags.contains(PhysicalPageFlags::HUGE) {
-                huge += 1;
+                // the doc states that HUGE flag is set only on HEAD pages, but seems like it also set on TAIL pages
+                huge_pages += 1;
             }
         }
-        dbg!(huge, total);
-        shms_metadata.insert(shm, (pfns, swap_pages));
+        let pages_4k = total_pages - huge_pages;
+        let pages_2M = huge_pages / 512;
+
+        shms_metadata.insert(shm, (pfns, swap_pages, pages_4k, pages_2M));
     }
 
     if !shms_metadata.is_empty() {
@@ -1232,8 +1235,8 @@ Examples:
         shms.sort_by(|a, b| a.size.cmp(&b.size).reverse());
 
         println!("Shared memory segments (MiB):");
-        println!("         key           id       Size        RSS       SWAP   USED%        SID",);
-        println!("=============================================================================",);
+        println!("         key           id       Size        RSS       4k/2M          SWAP   USED%        SID",);
+        println!("============================================================================================",);
         for shm in &shms {
             let mut sid_list = Vec::new();
             for instance in &instances {
@@ -1250,12 +1253,16 @@ Examples:
                 }
             }
 
+            let (pfns, swap_pages, pages_4k, pages_2M) = shms_metadata.get(shm).unwrap();
+
             println!(
-                "{:>12} {:>12} {:>10} {:>10} {:>10} {:>7.2} {:>10}",
+                "{:>12} {:>12} {:>10} {:>10} {:>8}/{:<8} {:>7} {:>7.2} {:>10}",
                 shm.key,
                 shm.shmid,
                 shm.size / 1024 / 1024,
                 shm.rss / 1024 / 1024,
+                pages_4k,
+                pages_2M,
                 shm.swap / 1024 / 1024,
                 (shm.rss + shm.swap) as f32 / shm.size as f32 * 100.,
                 sid_list.join(" ")
@@ -1472,7 +1479,7 @@ Examples:
         let processes_count = processes.len();
         let hit_memory_limit = Arc::new(Mutex::new(false));
         let chrono = std::time::Instant::now();
-        println!("Scanning {processes_count} processes");
+        println!("\nScanning {processes_count} processes");
         let pb = ProgressBar::new(processes_count as u64);
         pb.set_style(ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len}").unwrap());
         let processes_info: Vec<ProcessInfo> = processes
