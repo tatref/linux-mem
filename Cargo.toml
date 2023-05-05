@@ -38,6 +38,7 @@ libc = { git = "https://github.com/rust-lang/libc" }
 # https://github.com/eminence/procfs/pull/254
 # https://github.com/eminence/procfs/pull/260
 # https://github.com/eminence/procfs/pull/259
+# https://github.com/eminence/procfs/issues/265
 procfs = { git = "https://github.com/tatref/procfs", branch = "tatref" }
 
 #egui = "0.20.0"
