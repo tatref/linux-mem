@@ -66,3 +66,4 @@ rustc-hash = "1.1.0"
 anyhow = "1.0.69"
 serde = { version = "1.0.158", features = ["derive"] }
 serde_json = "1.0.95"
+rustix = { version = "0.37.19", features = ["fs"] }

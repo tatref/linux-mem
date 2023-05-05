@@ -695,7 +695,7 @@ checksum = "adcf93614601c8129ddf72e2d5633df827ba6551541c6d8c59520a371475be1f"
 dependencies = [
  "hermit-abi 0.3.1",
  "io-lifetimes",
- "rustix 0.37.18",
+ "rustix 0.37.19",
  "windows-sys 0.48.0",
 ]
 
@@ -767,7 +767,7 @@ checksum = "6a987beff54b60ffa6d51982e1aa1146bc42f19bd26be28b0586f252fccf5317"
 [[package]]
 name = "libc"
 version = "0.2.142"
-source = "git+https://github.com/rust-lang/libc#fff5dbe033906f147169c6e458e00b33e347ba41"
+source = "git+https://github.com/rust-lang/libc#0b758afcdc34c9a72508a481ba151857d0b469de"
 
 [[package]]
 name = "libm"
@@ -792,9 +792,9 @@ checksum = "f051f77a7c8e6957c0696eac88f26b0117e54f52d3fc682ab19397a8812846a4"
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b64f40e5e03e0d54f03845c8197d0291253cdbedfb1cb46b13c2c117554a9f4c"
+checksum = "ece97ea872ece730aed82664c424eb4c8291e1ff2480247ccf7409044bc6479f"
 
 [[package]]
 name = "log"
@@ -1077,7 +1077,7 @@ dependencies = [
 [[package]]
 name = "procfs"
 version = "0.15.1"
-source = "git+https://github.com/tatref/procfs?branch=tatref#e1192cae9cfd1e6092db044c9ecbe400350c3f79"
+source = "git+https://github.com/tatref/procfs?branch=tatref#97f176757773820b0fe17a06f4f323aa9a969ae9"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -1253,15 +1253,15 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.37.18"
+version = "0.37.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bbfc1d1c7c40c01715f47d71444744a81669ca84e8b63e25a55e169b1f86433"
+checksum = "acf8729d8542766f1b2cf77eb034d52f40d375bb8b615d0b147089946e16613d"
 dependencies = [
  "bitflags",
  "errno 0.3.1",
  "io-lifetimes",
  "libc 0.2.142 (registry+https://github.com/rust-lang/crates.io-index)",
- "linux-raw-sys 0.3.6",
+ "linux-raw-sys 0.3.7",
  "windows-sys 0.48.0",
 ]
 
@@ -1310,18 +1310,18 @@ checksum = "bebd363326d05ec3e2f532ab7660680f3b02130d780c299bca73469d521bc0ed"
 
 [[package]]
 name = "serde"
-version = "1.0.160"
+version = "1.0.162"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb2f3770c8bce3bcda7e149193a069a0f4365bda1fa5cd88e03bca26afc1216c"
+checksum = "71b2f6e1ab5c2b98c05f0f35b236b22e8df7ead6ffbf51d7808da7f8817e7ab6"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.160"
+version = "1.0.162"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "291a097c63d8497e00160b166a967a4a79c64f3facdd01cbd7502231688d77df"
+checksum = "a2a0814352fd64b58489904a44ea8d90cb1a91dcb6b4f5ebabc32c8318e93cb6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1393,6 +1393,7 @@ dependencies = [
  "rayon",
  "regex",
  "rustc-hash",
+ "rustix 0.37.19",
  "rusttype",
  "serde",
  "serde_json",

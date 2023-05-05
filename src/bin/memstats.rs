@@ -1094,6 +1094,11 @@ Examples:
         },
     }
 
+    let kernel = procfs::KernelVersion::current().expect("Can't get kernel version");
+    if kernel < procfs::KernelVersion::new(2, 6, 32) {
+        warn!("Untested kernel version {:?}", kernel);
+    }
+
     let cli = Cli::parse();
 
     if let Commands::GetDbInfo { pid } = cli.commands {
@@ -1123,7 +1128,20 @@ Examples:
         m
     } else {
         let meminfo = procfs::Meminfo::new().unwrap();
-        meminfo.mem_available.unwrap() / 1024 / 1024 / 2
+        let available = meminfo.mem_available.unwrap_or_else(|| {
+            // estimate available memory if field does not exist
+            // Target is kernel 2.6.32 if possible
+            // https://access.redhat.com/solutions/5928841
+
+            let mut available = meminfo.mem_free;
+            available += (meminfo.active_file.unwrap() + meminfo.inactive_file.unwrap()) / 2;
+            available += meminfo.s_reclaimable.unwrap();
+
+            available
+        });
+        
+        // 0.5 * available memory
+        available / 1024 / 1024 / 2
     };
     debug!("Memory limit: {mem_limit} MiB");
     let threads = if let Some(t) = cli.threads {
@@ -1186,6 +1204,7 @@ Examples:
     let mut instances: Vec<SmonInfo> = snap::find_smons()
         .iter()
         .filter_map(|(pid, uid, sid, home)| {
+            debug!("Getting DB info for pid={pid}, uid={uid}, sid={sid:?}, home={home:?}");
             let smon_info = get_smon_info(*pid, *uid, sid.as_os_str(), home.as_os_str());
 
             match smon_info {
@@ -1221,6 +1240,7 @@ Examples:
     }
 
     println!("Scanning shm...");
+    // TODO: remove twice read
     for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
         // dummy scan shm so rss is in sync with number of pages
         let x = snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm).unwrap();
@@ -1239,7 +1259,7 @@ Examples:
         shms.sort_by(|a, b| a.size.cmp(&b.size).reverse());
 
         println!("Shared memory segments (MiB):");
-        println!("         key           id       Size        RSS       4k/2M          SWAP   USED%        SID",);
+        println!("         key           id       Size        RSS         4k/2M        SWAP   USED%        SID",);
         println!("============================================================================================",);
         for shm in &shms {
             let mut sid_list = Vec::new();
@@ -1264,7 +1284,7 @@ Examples:
             };
 
             println!(
-                "{:>12} {:>12} {:>10} {:>10} {:>8}/{:<8} {:>7} {:>7.2} {:>10}",
+                "{:>12} {:>12} {:>10} {:>10} {:>10}/{:<6} {:>7} {:>7.2} {:>10}",
                 shm.key,
                 shm.shmid,
                 shm.size / 1024 / 1024,
@@ -1360,6 +1380,11 @@ Examples:
         println!("==========================");
         for (uid, pid, comm) in processes
             .iter()
+            .inspect(|p| {
+                debug!("uid: {:?}", p.uid());
+                debug!("stat: {:?}", p.stat());
+                p.uid().unwrap();
+            })
             .filter_map(|p| Some((p.uid().ok()?, p.pid, p.stat().ok()?.comm)))
         {
             println!("{uid:>10} {pid:>10} {comm}");
@@ -1580,9 +1605,9 @@ Examples:
             )
         }
 
-        let vmhwm = my_process.status().unwrap().vmhwm.unwrap();
-        let rssanon = my_process.status().unwrap().rssanon.unwrap();
-        let vmrss = my_process.status().unwrap().vmrss.unwrap();
+        let vmhwm = my_process.status().unwrap().vmhwm.unwrap_or(0);
+        let rssanon = my_process.status().unwrap().rssanon.unwrap_or(0);
+        let vmrss = my_process.status().unwrap().vmrss.unwrap_or(0);
         let global_elapsed = global_chrono.elapsed();
 
         info!("");

@@ -14,6 +14,7 @@ use procfs::{
 };
 use std::collections::{HashMap, HashSet};
 
+use log::{info, warn};
 use procfs::{
     process::{MemoryMap, PageInfo},
     Shm,
@@ -205,6 +206,11 @@ pub fn shm2pfns(
                 for val in slice {
                     dummy += *val;
                 }
+            } else {
+                warn!(
+                    "Skipping read for shm key:{} id:{} because it uses swap",
+                    shm.key, shm.shmid
+                );
             }
             // prevent optimization
             std::hint::black_box(dummy);
@@ -245,7 +251,10 @@ pub fn shm2pfns(
     let mut total_pages = 0;
     let mut huge_pages = 0;
     for pfn in &pfns {
-        let flags = all_physical_pages.get(pfn).unwrap();
+        let flags = match all_physical_pages.get(pfn) {
+            Some(x) => x,
+            None => continue, // page is not in RAM (in swap, or we didn't read that page, so Linux didn't create a memory mapping
+        };
         total_pages += 1;
         if flags.contains(PhysicalPageFlags::HUGE) {
             // the doc states that HUGE flag is set only on HEAD pages, but seems like it also set on TAIL pages
@@ -372,6 +381,7 @@ pub fn find_smons() -> Vec<(i32, u32, OsString, OsString)> {
             if cmdline.len() == 1
                 && (cmdline[0].starts_with("ora_smon_") || cmdline[0].starts_with("asm_smon_"))
             {
+                info!("Found smon {}", cmdline[0]);
                 Some(proc.ok()?)
             } else {
                 None
