@@ -1034,7 +1034,7 @@ Examples:
     ";
 
     #[derive(Parser, Debug)]
-    #[command(author, version, about, long_about = None, after_help = AFTER_HELP)]
+    #[command(author, version = option_env!("VERSION").unwrap_or("0.1"), about, long_about = None, after_help = AFTER_HELP)]
     struct Cli {
         #[arg(long, hide(true))]
         scan_kpageflags: bool,

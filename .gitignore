@@ -1,4 +1,6 @@
 /memory-snapshot-*
+/token
+/VERSION
 
 
 # Added by cargo
