@@ -20,6 +20,36 @@ Snapshot is inconsistent
   * GFS2 (since Linux 4.15)
 
 
+### Redhat 6
+
+Not supported, Python does not provide os.SEEK_DATA
+
+Python 3.11 requires std=c11, that gcc 4.4 can not compile
+
+```
+yum install gcc
+yum install libffi-devel
+curl -LO https://www.python.org/ftp/python/3.10.11/Python-3.10.11.tar.xz
+tar xf Python-3.10.11.tar.xz
+cd Python-3.10.11/
+./configure --enable-optimizations
+make -j8
+```
+
+```
+curl -O https://ftp.gnu.org/gnu/tar/tar-1.34.tar.gz
+tar xf tar-1.34.tar.gz
+cd tar-1.34
+FORCE_UNSAFE_CONFIGURE=1 ./configure
+make
+./src/tar --version
+```
+
+```
+export PATH=/root/tar-1.34/src:/root/Python-3.10.11:$PATH
+python ./snap.py run /path/to/dump
+```
+
 ### Redhat 7
 
 Compiling latest `tar`
@@ -44,7 +74,7 @@ Add the compiled directory to the `$PATH`
 
 ```
 export PATH=./tar-1.34/src:$PATH
-python3 ./snap.py dump
+python3 ./snap.py run /path/to/dump
 ```
 
 ### Redhat 8

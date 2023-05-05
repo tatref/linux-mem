@@ -58,6 +58,14 @@ def check_kernel() ->bool:
     return True
 
 
+def check_os_seek() -> bool:
+    try:
+        getattr(os, 'SEEK_DATA')
+        return True
+    except:
+        return False
+
+
 def check_tar_version() -> bool:
     output = subprocess.check_output(shlex.split("tar --version")).splitlines()[0]
     version = output.split(b' ')[-1]
@@ -390,8 +398,13 @@ if os.uname().sysname != 'Linux':
     print('ERROR: Linux only')
     sys.exit(1)
 
-if mode == 'run' and not check_tar_version():
+if not check_tar_version():
     logging.error('ERROR: require tar >= 1.29 to compress archive')
+    logging.error('See: https://github.com/tatref/linux-mem/blob/master/proc_snap/README.md')
+    sys.exit(1)
+
+if not check_os_seek():
+    logging.error("ERROR: Can't find SEEK_DATA in os module, Python or OS is probably too old")
     logging.error('See: https://github.com/tatref/linux-mem/blob/master/proc_snap/README.md')
     sys.exit(1)
 
@@ -400,7 +413,7 @@ libc = CDLL('libc.so.6')
 
 if mode == 'run':
     logging.info('Tmp path = %s', dump_dir.absolute())
-    logging.info('Dump archive = %s.tar.gz', dump_dir.absolute().with_suffix('.tar.gz'))
+    logging.info('Dump archive = %s', dump_dir.absolute().with_suffix('.tar.gz'))
 
 if os.geteuid() != 0:
     logging.critical('Run as root / sudo')
