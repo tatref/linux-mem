@@ -23,7 +23,7 @@ SHORT_VERSION="$VERSION"
 LONG_VERSION="$VERSION $DATE"
 
 
-#cargo clean
+cargo clean
 RUSTFLAGS="-C target-cpu=x86-64-v2" cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.12
 
 echo "$LONG_VERSION" > VERSION
