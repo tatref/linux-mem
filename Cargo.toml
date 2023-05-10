@@ -32,7 +32,7 @@ tar = "0.4.37"
 
 # waiting for https://github.com/rust-lang/libc/pull/3159
 # version 0.2.142
-libc = { git = "https://github.com/rust-lang/libc" }
+libc = "0.2"
 
 # waiting for
 # https://github.com/eminence/procfs/pull/254
