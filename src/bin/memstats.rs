@@ -1,9 +1,4 @@
-//#![allow(dead_code)]
-//#![allow(unused_variables)]
-//#![allow(unreachable_code)]
-//#![allow(unused_imports)]
 #![allow(non_snake_case)]
-//#![feature(drain_filter)]
 
 // Process groups memory statistics tool
 // - Must run as root
