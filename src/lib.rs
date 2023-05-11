@@ -1,3 +1,4 @@
+#![feature(drain_filter)]
 #![allow(non_snake_case)]
 
 // https://biriukov.dev/docs/page-cache/4-page-cache-eviction-and-page-reclaim/
@@ -12,7 +13,15 @@ use procfs::{
     process::{MMapPath, Pfn, Process},
     PhysicalMemoryMap, PhysicalPageFlags,
 };
-use std::collections::{HashMap, HashSet};
+use rayon::prelude::ParallelExtend;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::OsStr,
+    hash::BuildHasherDefault,
+    os::unix::process::CommandExt,
+    process::Command,
+};
 
 use log::{info, warn};
 use procfs::{
@@ -22,6 +31,10 @@ use procfs::{
 
 use oracle::{Connector, Privilege};
 use std::ffi::OsString;
+
+pub mod filters;
+pub mod process_tree;
+pub mod splitters;
 
 /// Convert pfn to index into non-contiguous memory mappings
 pub fn pfn_to_index(iomem: &[PhysicalMemoryMap], page_size: u64, pfn: Pfn) -> Option<u64> {
@@ -403,4 +416,227 @@ pub fn find_smons() -> Vec<(i32, u32, OsString, OsString)> {
         .collect();
 
     result
+}
+
+#[cfg(feature = "std")]
+pub type TheHash = std::collections::hash_map::DefaultHasher;
+
+#[cfg(feature = "fnv")]
+pub type TheHash = fnv::FnvHasher;
+
+#[cfg(feature = "ahash")]
+pub type TheHash = ahash::AHasher;
+
+#[cfg(feature = "metrohash")]
+pub type TheHash = metrohash::MetroHash;
+
+#[cfg(feature = "fxhash")]
+pub type TheHash = rustc_hash::FxHasher;
+
+pub type ShmsMetadata = HashMap<
+    procfs::Shm,
+    Option<(HashSet<Pfn>, HashSet<(u64, u64)>, usize, usize)>,
+    BuildHasherDefault<TheHash>,
+>;
+
+pub struct ProcessInfo {
+    pub process: Process,
+    pub uid: u32,
+    pub environ: HashMap<OsString, OsString>,
+    pub pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
+    pub swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
+    pub referenced_shms: HashSet<Shm>,
+    pub rss: u64,
+    pub vsz: u64,
+    pub pte: u64,
+    pub fds: usize,
+}
+
+pub struct ProcessGroupInfo {
+    pub name: String,
+    pub processes_info: Vec<ProcessInfo>,
+    pub pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
+    pub swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
+    pub referenced_shm: HashSet<Shm>,
+    pub pte: u64,
+    pub fds: usize,
+}
+
+impl PartialEq for ProcessGroupInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SmonInfo {
+    pub pid: i32,
+    pub sid: OsString,
+    pub sga_size: u64,
+    pub large_pages: String,
+    pub processes: u64,
+    pub pga_size: u64,
+    //sga_shm: Shm,
+    //sga_pfns: HashSet<Pfn>,
+}
+
+// return info memory maps info for standard process or None for kernel process
+pub fn get_process_info(
+    process: Process,
+    shms_metadata: &ShmsMetadata,
+) -> Result<ProcessInfo, Box<dyn std::error::Error>> {
+    if process.cmdline()?.is_empty() {
+        // already handled in main
+        return Err(String::from("No info for kernel process"))?;
+    }
+
+    let page_size = procfs::page_size();
+
+    // physical memory pages
+    let mut pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = Default::default();
+    // swap type, offset
+    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
+
+    // size of pages in memory
+    let mut rss = 0;
+    // size of mappings
+    let mut vsz = 0;
+
+    // page table size
+    let pte = process
+        .status()?
+        .vmpte
+        .expect("'vmpte' field does not exist");
+
+    // file descriptors
+    let fds = process.fd_count()?;
+
+    let memory_maps = crate::get_memory_maps_for_process(&process, true)?;
+
+    let mut referenced_shms = HashSet::new();
+
+    for (memory_map, pages) in memory_maps.iter() {
+        let size = memory_map.address.1 - memory_map.address.0;
+        vsz += size;
+        let _max_pages = size / page_size;
+
+        if let MMapPath::Vsys(key) = &memory_map.pathname {
+            // shm
+            let mut found = false;
+
+            for shm in shms_metadata.keys() {
+                if shm.key == *key && shm.shmid == memory_map.inode {
+                    referenced_shms.insert(*shm);
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                warn!(
+                    "Cant' find shm key {:?} shmid {:?} for pid {}",
+                    key, memory_map.inode, process.pid
+                );
+            }
+        } else {
+            // not shm
+            for page in pages.iter() {
+                match page {
+                    PageInfo::MemoryPage(memory_page) => {
+                        let pfn = memory_page.get_page_frame_number();
+                        if pfn.0 != 0 {
+                            rss += page_size;
+                        }
+                        pfns.insert(pfn);
+                    }
+                    PageInfo::SwapPage(swap_page) => {
+                        let swap_type = swap_page.get_swap_type();
+                        let offset = swap_page.get_swap_offset();
+
+                        swap_pages.insert((swap_type, offset));
+                    }
+                }
+            }
+        }
+    } // end for memory_maps
+
+    let uid = process.uid()?;
+    let env = process.environ()?;
+
+    Ok(ProcessInfo {
+        process,
+        uid,
+        environ: env,
+        pfns,
+        referenced_shms,
+        swap_pages,
+        rss,
+        vsz,
+        pte,
+        fds,
+    })
+}
+
+pub fn processes_group_info(
+    processes_info: Vec<ProcessInfo>,
+    name: String,
+    _shms_metadata: &ShmsMetadata,
+) -> ProcessGroupInfo {
+    let mut pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
+    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
+    let mut referenced_shm = HashSet::new();
+    let mut pte = 0;
+    let mut fds = 0;
+
+    for process_info in &processes_info {
+        pfns.par_extend(&process_info.pfns);
+        swap_pages.par_extend(&process_info.swap_pages);
+        referenced_shm.extend(&process_info.referenced_shms);
+        pte += process_info.pte;
+        fds += process_info.fds;
+    }
+
+    ProcessGroupInfo {
+        name,
+        processes_info,
+        pfns,
+        swap_pages,
+        referenced_shm,
+        pte,
+        fds,
+    }
+}
+
+/// Spawn new process with database user
+/// return smon info
+pub fn get_smon_info(
+    pid: i32,
+    uid: u32,
+    sid: &OsStr,
+    home: &OsStr,
+) -> Result<SmonInfo, Box<dyn std::error::Error>> {
+    let myself = std::env::current_exe()?;
+
+    let mut lib = home.to_os_string();
+    lib.push("/lib");
+
+    let output = Command::new(myself)
+        .env("LD_LIBRARY_PATH", lib)
+        .env("ORACLE_SID", sid)
+        .env("ORACLE_HOME", home)
+        .uid(uid)
+        .arg("get-db-info")
+        .args(["--pid", &format!("{pid}")])
+        .output()?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Can't get info for {sid:?} {uid} {home:?}: {:?}",
+            output
+        ))?;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+    let smon_info: SmonInfo = serde_json::from_str(&stdout)?;
+    Ok(smon_info)
 }
