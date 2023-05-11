@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use image::{ImageBuffer, Rgb, RgbImage};
+use procfs::prelude::*;
 use procfs::process::{MMapPath, Pfn, Process};
 
 fn handle_process(process: &Process) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
@@ -83,7 +84,7 @@ fn main() {
     let colors = [Rgb([255, 0, 0]), Rgb([0, 255, 0]), Rgb([0, 0, 255])];
 
     for map in iomem.iter().filter(|map| map.name == "System RAM") {
-        let (start, end) = map.get_range();
+        let (start, end) = map.get_range().get();
         for pfn in start.0..end.0 {
             let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);

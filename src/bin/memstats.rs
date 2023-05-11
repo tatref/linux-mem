@@ -11,6 +11,10 @@
 //
 //
 // TODO:
+// - 0 / ~0
+// - oracle spawn status / error codes?
+// - split code into modules
+// - add tmpfs
 // - parallelize single pass
 // - merge splitters into CustomSplitters
 // - clap commands for splits
@@ -29,6 +33,7 @@ use procfs::{
     page_size,
     process::{MMapPath, PageInfo, Pfn, Process},
     PhysicalPageFlags, Shm,
+    prelude::*
 };
 use rayon::prelude::*;
 use std::{
@@ -1127,7 +1132,7 @@ Examples:
     let mem_limit = if let Some(m) = cli.mem_limit {
         m
     } else {
-        let meminfo = procfs::Meminfo::new().unwrap();
+        let meminfo = procfs::Meminfo::current().unwrap();
         let available = meminfo.mem_available.unwrap_or_else(|| {
             // estimate available memory if field does not exist
             // Target is kernel 2.6.32 if possible
@@ -1181,7 +1186,7 @@ Examples:
             }
         })
         .map(|map| {
-            let (start, end) = map.get_range();
+            let (start, end) = map.get_range().get();
 
             //let counts = kpagecount
             //    .get_count_in_range(start, end)
@@ -1241,13 +1246,13 @@ Examples:
 
     println!("Scanning shm...");
     // TODO: remove twice read
-    for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
+    for shm in procfs::SharedMemorySegments::current().expect("Can't read /dev/sysvipc/shm").0 {
         // dummy scan shm so rss is in sync with number of pages
         let x = snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm).unwrap();
     }
 
     let mut shms_metadata: ShmsMetadata = HashMap::default();
-    for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
+    for shm in procfs::SharedMemorySegments::current().expect("Can't read /dev/sysvipc/shm").0 {
         // TODO remove unwrap for Result
         let x = snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm).unwrap();
 

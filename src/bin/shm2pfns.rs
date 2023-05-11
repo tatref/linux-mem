@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use procfs::process::Pfn;
-use procfs::PhysicalPageFlags;
+use procfs::{Current, PhysicalPageFlags, WithCurrentSystemInfo};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .map(|map| {
-            let (start, end) = map.get_range();
+            let (start, end) = map.get_range().get();
 
             //let counts = kpagecount
             //    .get_count_in_range(start, end)
@@ -42,7 +42,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // (key, id) -> PFNs
     let mut h: HashMap<(i32, u64), HashSet<Pfn>> = HashMap::new();
 
-    for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
+    for shm in procfs::SharedMemorySegments::current()
+        .expect("Can't read /dev/sysvipc/shm")
+        .0
+    {
         let (pfns, _swap_pages, _pages_4k, _pages_2M) =
             snap::shm2pfns(&all_physical_pages, &shm, true)
                 .expect("Got an error")

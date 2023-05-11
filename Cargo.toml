@@ -30,15 +30,11 @@ rand = "0.8.5"
 regex = "1.5.4"
 tar = "0.4.37"
 
-# waiting for https://github.com/rust-lang/libc/pull/3159
-# version 0.2.142
-libc = "0.2"
+libc = "0.2.144"
 
 # waiting for
 # https://github.com/eminence/procfs/pull/254
-# https://github.com/eminence/procfs/pull/260
 # https://github.com/eminence/procfs/pull/259
-# https://github.com/eminence/procfs/issues/265
 procfs = { git = "https://github.com/tatref/procfs", branch = "tatref" }
 
 #egui = "0.20.0"

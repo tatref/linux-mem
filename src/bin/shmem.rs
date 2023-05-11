@@ -16,6 +16,7 @@ use std::mem::MaybeUninit;
 
 use clap::{arg, value_parser, Command};
 use libc::{c_void, shmid_ds};
+use procfs::Current;
 
 fn wait() {
     println!("ENTER to exit");
@@ -142,7 +143,10 @@ fn delete_shm(shmid: i32) {
 }
 
 fn info() {
-    for shm in procfs::Shm::new().expect("Can't read sysvipc") {
+    for shm in procfs::SharedMemorySegments::current()
+        .expect("Can't read sysvipc")
+        .0
+    {
         println!("{:?}", shm);
     }
 }
