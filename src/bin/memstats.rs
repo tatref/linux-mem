@@ -9,11 +9,11 @@
 // - add tmpfs
 // - 0 / ~0
 // - anon / file
-// - split code into modules
-// - shm: remove double read
 // - replace libc by nix
-// - shm: read only 1B per page/huge page
 // - custom groups, repeated groups
+//     memstats groups groups[uid(0),uid(1000),or(comm(httpd),comm(java))]
+// - Better display code: https://github.com/zhiburt/tabled
+// - CSV output
 // - parallelize single pass
 // - merge splitters into CustomSplitters
 // - clap commands for splits
@@ -22,16 +22,20 @@
 //
 
 use clap::{Parser, Subcommand};
-use snap::{filters, splitters, SmonInfo, get_smon_info, ShmsMetadata, get_process_info, ProcessInfo, TheHash};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
 use log::{debug, error, info};
 use procfs::{
+    prelude::*,
     process::{Pfn, Process},
     PhysicalPageFlags, Shm,
-    prelude::*
 };
 use rayon::prelude::*;
+use snap::tmpfs::TmpfsMetadata;
+use snap::{
+    filters, get_process_info, get_smon_info, splitters, ProcessInfo, ShmsMetadata, SmonInfo,
+    TheHash,
+};
 use std::{
     collections::{HashMap, HashSet},
     hash::BuildHasherDefault,
@@ -40,12 +44,11 @@ use std::{
 };
 
 use splitters::{
-        ProcessSplitter, ProcessSplitterCustomFilter, ProcessSplitterEnvVariable,
-        ProcessSplitterPids, ProcessSplitterUid,
-    };
+    ProcessSplitter, ProcessSplitterCustomFilter, ProcessSplitterEnvVariable, ProcessSplitterPids,
+    ProcessSplitterUid,
+};
 
 use snap::process_tree::ProcessTree;
-
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
@@ -159,8 +162,16 @@ Examples:
 
         let sid = std::env::var_os("ORACLE_SID").expect("Missing ORACLE_SID");
 
-        let smon_info: SmonInfo = SmonInfo { pid, sid: sid.clone(), sga_size, large_pages, processes, pga_size };
-        let out = serde_json::to_string(&smon_info).expect(&format!("Can't serialize SmonInfo for {sid:?}"));
+        let smon_info: SmonInfo = SmonInfo {
+            pid,
+            sid: sid.clone(),
+            sga_size,
+            large_pages,
+            processes,
+            pga_size,
+        };
+        let out = serde_json::to_string(&smon_info)
+            .expect(&format!("Can't serialize SmonInfo for {sid:?}"));
         println!("{out}");
 
         // print value, can't use logger here
@@ -187,7 +198,7 @@ Examples:
 
             available
         });
-        
+
         // 0.5 * available memory
         available / 1024 / 1024 / 2
     };
@@ -212,6 +223,38 @@ Examples:
     if users::get_effective_uid() != 0 {
         error!("Run as root");
         std::process::exit(1);
+    }
+
+    println!("Scanning tmpfs...");
+    let mountinfos = procfs::process::Process::myself().unwrap().mountinfo();
+    if let Ok(mountinfos) = mountinfos {
+        let tabled_tmpfs_metadata: Vec<TmpfsMetadata> = mountinfos
+            .into_iter()
+            .filter(|mountinfo| match mountinfo.fs_type.as_str() {
+                "tmpfs" => true,
+                _ => false,
+            })
+            .map(|mountinfo| {
+                let mount_point = mountinfo.mount_point;
+                let statvfs = nix::sys::statvfs::statvfs(&mount_point).unwrap();
+                let fs_size = statvfs.block_size() * statvfs.blocks();
+                let fs_free = statvfs.block_size() * statvfs.blocks_free();
+                let fs_used = fs_size - fs_free;
+                let tmpfs_metadata = TmpfsMetadata {
+                    mount_point: mount_point.to_string_lossy().to_string(),
+                    fs_size,
+                    fs_used,
+                };
+
+                tmpfs_metadata
+            })
+            .collect();
+
+        let table = tabled::Table::new(tabled_tmpfs_metadata).to_string();
+        println!("{table}");
+        println!();
+    } else {
+        warn!("Can't read /proc/pid/mountinfo");
     }
 
     println!("Scanning /proc/kpageflags...");
@@ -254,11 +297,11 @@ Examples:
             let smon_info = get_smon_info(*pid, *uid, sid.as_os_str(), home.as_os_str());
 
             match smon_info {
-            Ok(x) => Some(x),
+                Ok(x) => Some(x),
                 Err(e) => {
                     warn!("Can't get DB info for {sid:?}: {e:?}");
                     None
-                },
+                }
             }
         })
         .collect();
@@ -274,7 +317,7 @@ Examples:
                 "{:<12} {:>12} {:>10} {:>10} {:>12}",
                 instance.sid.to_string_lossy(),
                 instance.sga_size / 1024 / 1024,
-                instance.pga_size / 1024 /1024,
+                instance.pga_size / 1024 / 1024,
                 instance.processes,
                 instance.large_pages,
             );
@@ -287,13 +330,19 @@ Examples:
 
     println!("Scanning shm...");
     // TODO: remove twice read
-    for shm in procfs::SharedMemorySegments::current().expect("Can't read /dev/sysvipc/shm").0 {
+    for shm in procfs::SharedMemorySegments::current()
+        .expect("Can't read /dev/sysvipc/shm")
+        .0
+    {
         // dummy scan shm so rss is in sync with number of pages
         let _x = snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm).unwrap();
     }
 
     let mut shms_metadata: ShmsMetadata = HashMap::default();
-    for shm in procfs::SharedMemorySegments::current().expect("Can't read /dev/sysvipc/shm").0 {
+    for shm in procfs::SharedMemorySegments::current()
+        .expect("Can't read /dev/sysvipc/shm")
+        .0
+    {
         // TODO remove unwrap for Result
         let x = snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm).unwrap();
 
@@ -310,8 +359,7 @@ Examples:
         for shm in &shms {
             let mut sid_list = Vec::new();
             for instance in &instances {
-                let Ok(process) = Process::new(instance.pid) 
-                 else {
+                let Ok(process) = Process::new(instance.pid) else {
                     continue;
                 };
                 let Ok(process_info) = get_process_info(process, &shms_metadata) else {
@@ -325,7 +373,9 @@ Examples:
 
             // TODO: remove unwrap
             let (pages_4k, pages_2M) = match shms_metadata.get(shm).unwrap() {
-                Some((_pfns, _swap_pages, pages_4k, pages_2M)) => (format!("{}", pages_4k), format!("{}", pages_2M)),
+                Some((_pfns, _swap_pages, pages_4k, pages_2M)) => {
+                    (format!("{}", pages_4k), format!("{}", pages_2M))
+                }
                 None => ("-".to_string(), "-".to_string()),
             };
 
@@ -361,20 +411,16 @@ Examples:
     let mut kernel_processes_count = 0;
     let all_processes: Vec<Process> = procfs::process::all_processes()
         .unwrap()
-        .filter_map(|p| 
-        match p {
+        .filter_map(|p| match p {
             Ok(p) => Some(p),
-            Err(e) => {
-                match e {
-                    procfs::ProcError::NotFound(_) => None,
-                    x => {
-                        log::error!("Can't read process {x:?}");
-                        std::process::exit(1);
-                    },
+            Err(e) => match e {
+                procfs::ProcError::NotFound(_) => None,
+                x => {
+                    log::error!("Can't read process {x:?}");
+                    std::process::exit(1);
                 }
-            }
-        }
-        )
+            },
+        })
         .collect();
     let all_processes_count = all_processes.len();
     info!("Total processes {all_processes_count}");
@@ -442,7 +488,7 @@ Examples:
     let my_process = procfs::process::Process::new(my_pid as i32).unwrap();
 
     match cli.commands {
-        Commands::GetDbInfo  { .. } => unreachable!(),
+        Commands::GetDbInfo { .. } => unreachable!(),
         Commands::Single => {
             scan_single(
                 my_process,
@@ -574,10 +620,7 @@ Examples:
                 if my_rss > mem_limit {
                     let mut guard = hit_memory_limit.lock().unwrap();
                     if !*guard {
-                        warn!(
-                        "Hit memory limit ({} MiB), try increasing limit or filtering processes",
-                        mem_limit
-                    );
+                        warn!("Hit memory limit ({} MiB), try increasing limit or filtering processes", mem_limit);
                         *guard = true;
                     }
                     return None;

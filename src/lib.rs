@@ -37,6 +37,7 @@ use std::ffi::OsString;
 pub mod filters;
 pub mod process_tree;
 pub mod splitters;
+pub mod tmpfs;
 
 /// Convert pfn to index into non-contiguous memory mappings
 pub fn pfn_to_index(iomem: &[PhysicalMemoryMap], page_size: u64, pfn: Pfn) -> Option<u64> {
@@ -522,39 +523,47 @@ pub fn get_process_info(
         vsz += size;
         let _max_pages = size / page_size;
 
-        if let MMapPath::Vsys(key) = &memory_map.pathname {
-            // shm
-            let mut found = false;
+        match &memory_map.pathname {
+            MMapPath::Vsys(key) => {
+                // shm
+                let mut found = false;
 
-            for shm in shms_metadata.keys() {
-                if shm.key == *key && shm.shmid == memory_map.inode {
-                    referenced_shms.insert(*shm);
-                    found = true;
-                    break;
+                for shm in shms_metadata.keys() {
+                    if shm.key == *key && shm.shmid == memory_map.inode {
+                        referenced_shms.insert(*shm);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    warn!(
+                        "Cant' find shm key {:?} shmid {:?} for pid {}",
+                        key, memory_map.inode, process.pid
+                    );
                 }
             }
-            if !found {
-                warn!(
-                    "Cant' find shm key {:?} shmid {:?} for pid {}",
-                    key, memory_map.inode, process.pid
-                );
-            }
-        } else {
-            // not shm
-            for page in pages.iter() {
-                match page {
-                    PageInfo::MemoryPage(memory_page) => {
-                        let pfn = memory_page.get_page_frame_number();
-                        if pfn.0 != 0 {
-                            rss += page_size;
+            // Count as "anon"
+            //MMapPath::Anonymous => (),
+            //MMapPath::Heap => (),
+            //MMapPath::Stack => (),
+            //MMapPath::TStack(_) => (),
+            _ => {
+                // not shm
+                for page in pages.iter() {
+                    match page {
+                        PageInfo::MemoryPage(memory_page) => {
+                            let pfn = memory_page.get_page_frame_number();
+                            if pfn.0 != 0 {
+                                rss += page_size;
+                            }
+                            pfns.insert(pfn);
                         }
-                        pfns.insert(pfn);
-                    }
-                    PageInfo::SwapPage(swap_page) => {
-                        let swap_type = swap_page.get_swap_type();
-                        let offset = swap_page.get_swap_offset();
+                        PageInfo::SwapPage(swap_page) => {
+                            let swap_type = swap_page.get_swap_type();
+                            let offset = swap_page.get_swap_offset();
 
-                        swap_pages.insert((swap_type, offset));
+                            swap_pages.insert((swap_type, offset));
+                        }
                     }
                 }
             }
