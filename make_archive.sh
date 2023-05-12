@@ -39,7 +39,7 @@ RUSTFLAGS="-C target-cpu=x86-64-v2" cargo zigbuild --release --target x86_64-unk
 
 echo "$LONG_VERSION" > VERSION
 
-ARCHIVE="linux-mem-$SHORT_VERSION.tar.gz"
+ARCHIVE="linux-mem-$SHORT_VERSION.tar.xz"
 tar -cJf "$ARCHIVE" \
   --transform 's:target/x86_64-unknown-linux-gnu/release/::' \
   --transform "s:^:linux-mem-$SHORT_VERSION/:" \

@@ -1,7 +1,9 @@
 /memory-snapshot-*
-/token
+/linux-mem-*.tar.xz
 /VERSION
+/*.png
 
+/procfs
 
 # Added by cargo
 
