@@ -3,6 +3,8 @@
 /VERSION
 /*.png
 
+/fonts
+
 /procfs
 
 # Added by cargo
