@@ -138,7 +138,7 @@ pub trait ProcessSplitter<'a> {
             );
         }
         debug!("Display split by {}: {:?}", self.name(), chrono.elapsed());
-        println!("");
+        println!();
     }
 }
 

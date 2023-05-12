@@ -11,6 +11,7 @@
 
 use itertools::Itertools;
 use procfs::{
+    page_size,
     process::{MMapPath, Pfn, Process},
     PhysicalMemoryMap, PhysicalPageFlags,
 };
@@ -217,7 +218,7 @@ pub fn shm2pfns(
             if must_read {
                 // we must read each page to populate pagemap
                 let slice = std::slice::from_raw_parts_mut(ptr, shm.size as usize);
-                for val in slice {
+                for val in slice.iter().step_by(page_size() as usize) {
                     dummy += *val;
                 }
             } else {

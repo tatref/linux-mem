@@ -8,7 +8,6 @@
 // TODO:
 // - add tmpfs
 // - 0 / ~0
-// - oracle spawn status / error codes?
 // - anon / file
 // - split code into modules
 // - shm: remove double read
@@ -280,10 +279,10 @@ Examples:
                 instance.large_pages,
             );
         }
-        println!("");
+        println!();
     } else {
         println!("Can't locate any Oracle instance");
-        println!("");
+        println!();
     }
 
     println!("Scanning shm...");
@@ -344,10 +343,10 @@ Examples:
             );
             // USED% can be >100% if size is not aligned with the underling pages: in that case, size<rss+swap
         }
-        println!("");
+        println!();
     } else {
         println!("Can't locate any shared memory segment");
-        println!("");
+        println!();
     }
 
     // probably incorrect?
@@ -436,7 +435,7 @@ Examples:
         {
             println!("{uid:>10} {pid:>10} {comm}");
         }
-        println!("");
+        println!();
     }
 
     let my_pid = std::process::id();
