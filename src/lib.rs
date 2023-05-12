@@ -642,7 +642,7 @@ pub fn get_smon_info(
 
     if !output.status.success() {
         return Err(format!(
-            "Can't get info for {sid:?} {uid} {home:?}: {:?}",
+            "Proces failed for DB {sid:?} {uid} {home:?}: {:?}",
             output
         ))?;
     }
