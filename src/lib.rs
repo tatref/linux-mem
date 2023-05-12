@@ -209,8 +209,8 @@ pub fn shm2pfns(
                 return Err(std::io::Error::last_os_error().into());
             }
 
-            // try to read the memory
-            // dump because this will load the whole mapping into RAM?
+            // try to read the shm
+            // don't read if shm uses swap, as this would load the whole mapping into RAM
             let ptr = ptr as *mut u8;
             let mut dummy = 0;
 
