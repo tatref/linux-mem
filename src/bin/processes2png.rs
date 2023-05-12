@@ -1,3 +1,7 @@
+// Tool to visualize memory fragmentation
+// For details, see https://tatref.github.io/blog/2023-visual-linux-memory-compact/
+//
+
 use std::collections::HashSet;
 
 use image::{ImageBuffer, Rgb, RgbImage};

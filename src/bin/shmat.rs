@@ -1,8 +1,13 @@
 // Attach current process to shared memory segments from /proc/sysvipc/shm
 // root is required
 
+use procfs::Current;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    for shm in procfs::Shm::new().expect("Can't read /dev/sysvipc/shm") {
+    for shm in procfs::SharedMemorySegments::current()
+        .expect("Can't read /dev/sysvipc/shm")
+        .0
+    {
         let shmid: libc::c_int = shm.shmid as i32; // TODO: fix procfs type
         let key = shm.key;
         let size = shm.size;

@@ -12,8 +12,6 @@ set -euo pipefail
 
 unset LANG
 
-. token
-
 
 COMMIT="$(git rev-parse --short HEAD)"
 DATE="$(date +%F)"
@@ -31,6 +29,7 @@ git branch -D tatref
 git switch -c tatref
 git rebase bitflags-v2
 git rebase standard-traits
+git rebase clear-refs
 git push -f tatref tatref
 popd
 

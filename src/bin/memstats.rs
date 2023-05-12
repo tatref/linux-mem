@@ -6,10 +6,15 @@
 //
 //
 // TODO:
+// - add tmpfs
 // - 0 / ~0
 // - oracle spawn status / error codes?
+// - anon / file
 // - split code into modules
-// - add tmpfs
+// - shm: remove double read
+// - replace libc by nix
+// - shm: read only 1B per page/huge page
+// - custom groups, repeated groups
 // - parallelize single pass
 // - merge splitters into CustomSplitters
 // - clap commands for splits
