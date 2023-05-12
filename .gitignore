@@ -1,12 +1,15 @@
-/memory-snapshot-*
-/linux-mem-*.tar.xz
-/VERSION
 /*.png
+/.vscode
+/links.md
+/linux-mem-*.tar.xz
+/memory-snapshot-*
+/NOTES.md
+/oracle-tools
+/VERSION
 
 /fonts
 
 /procfs
 
 # Added by cargo
-
 /target
