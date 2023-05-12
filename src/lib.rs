@@ -1,4 +1,5 @@
 #![feature(drain_filter)]
+#![feature(setgroups)]
 #![allow(non_snake_case)]
 
 // https://biriukov.dev/docs/page-cache/4-page-cache-eviction-and-page-reclaim/
@@ -20,7 +21,7 @@ use std::{
     ffi::OsStr,
     hash::BuildHasherDefault,
     os::unix::process::CommandExt,
-    process::Command,
+    process::{Command, Stdio},
 };
 
 use log::{info, warn};
@@ -616,17 +617,28 @@ pub fn get_smon_info(
 ) -> Result<SmonInfo, Box<dyn std::error::Error>> {
     let myself = std::env::current_exe()?;
 
+    let user = users::get_user_by_uid(uid).expect("Can't find user for uid {uid}");
+    let gid = user.primary_group_id();
+
     let mut lib = home.to_os_string();
     lib.push("/lib");
 
-    let output = Command::new(myself)
-        .env("LD_LIBRARY_PATH", lib)
+    let mut cmd = Command::new(myself);
+    cmd.env("LD_LIBRARY_PATH", lib)
         .env("ORACLE_SID", sid)
         .env("ORACLE_HOME", home)
         .uid(uid)
+        .gid(gid)
         .arg("get-db-info")
         .args(["--pid", &format!("{pid}")])
-        .output()?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(groups) = user.groups() {
+        let groups: Vec<u32> = groups.iter().map(|g| g.gid()).collect();
+        cmd.groups(&groups);
+    }
+    let child = cmd.spawn()?;
+    let output = child.wait_with_output()?;
 
     if !output.status.success() {
         return Err(format!(
