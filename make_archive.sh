@@ -28,8 +28,6 @@ git pull
 git branch -D tatref
 git switch -c tatref
 git rebase bitflags-v2
-git rebase standard-traits
-git rebase clear-refs
 git push -f tatref tatref
 popd
 
