@@ -10,6 +10,7 @@ use itertools::Itertools;
 use log::{debug, warn};
 use procfs::{process::Pfn, Shm};
 use rayon::prelude::*;
+use tabled::Tabled;
 
 use crate::{
     filters::{self, Filter},
@@ -46,7 +47,26 @@ pub trait ProcessSplitter<'a> {
     fn display(&'a self, shm_metadata: &ShmsMetadata) {
         let chrono = std::time::Instant::now();
 
-        let mut info = Vec::new();
+        use crate::tmpfs::display_MiB;
+        #[derive(Tabled)]
+        struct ProcessGroupDisplayRow {
+            group_name: String,
+            procs: usize,
+            #[tabled(display_with = "display_MiB")]
+            mem_rss: u64,
+            #[tabled(display_with = "display_MiB")]
+            mem_uss: u64,
+            #[tabled(display_with = "display_MiB")]
+            swap_rss: u64,
+            #[tabled(display_with = "display_MiB")]
+            swap_uss: u64,
+            #[tabled(display_with = "display_MiB")]
+            shm_mem: u64,
+            #[tabled(display_with = "display_MiB")]
+            shm_swap: u64,
+        }
+        //let mut info: Vec<(String, usize, u64, u64, u64, u64, u64, u64)> = Vec::new();
+        let mut display_info: Vec<ProcessGroupDisplayRow> = Vec::new();
         let pb = ProgressBar::new(self.iter_groups().count() as u64);
         for group_1 in self.iter_groups() {
             let mut other_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
@@ -83,60 +103,47 @@ pub trait ProcessSplitter<'a> {
                 }
             }
             let processes_count = group_1.processes_info.len();
-            let mem_rss = group_1_pfns.len() as u64 * procfs::page_size() / 1024 / 1024;
-            let mem_uss = group_1_pfns.difference(&other_pfns).count() as u64 * procfs::page_size()
-                / 1024
-                / 1024;
+            let mem_rss = group_1_pfns.len() as u64 * procfs::page_size();
+            let mem_uss = group_1_pfns.difference(&other_pfns).count() as u64 * procfs::page_size();
 
-            let swap_rss = group_1.swap_pages.len() as u64 * procfs::page_size() / 1024 / 1024;
-            let swap_uss = group_1.swap_pages.difference(&other_swap).count() as u64
-                * procfs::page_size()
-                / 1024
-                / 1024;
+            let swap_rss = group_1.swap_pages.len() as u64 * procfs::page_size();
+            let swap_uss =
+                group_1.swap_pages.difference(&other_swap).count() as u64 * procfs::page_size();
 
             // TODO: no differences for shm?
             let shm_mem: u64 = group_1
                 .referenced_shm
                 .iter()
                 .map(|shm| shm.rss)
-                .sum::<u64>()
-                / 1024
-                / 1024;
+                .sum::<u64>();
             let shm_swap: u64 = group_1
                 .referenced_shm
                 .iter()
                 .map(|shm| shm.swap)
-                .sum::<u64>()
-                / 1024
-                / 1024;
+                .sum::<u64>();
 
-            info.push((
-                group_1.name.clone(),
-                processes_count,
+            display_info.push(ProcessGroupDisplayRow {
+                group_name: group_1.name.clone(),
+                procs: processes_count,
                 mem_rss,
                 mem_uss,
                 swap_rss,
                 swap_uss,
                 shm_mem,
                 shm_swap,
-            ));
+            });
             pb.inc(1);
         }
         pb.finish_and_clear();
 
         // sort by mem RSS
-        info.sort_by(|a, b| b.2.cmp(&a.2));
+        display_info.sort_by(|a, b| b.mem_rss.cmp(&a.mem_rss));
 
-        println!("Process groups by {} (MiB)", self.name());
-        println!("group_name                     #procs         RSS         USS   SWAP RSS   SWAP USS    SHM MEM   SHM SWAP",);
-        println!("=========================================================================================================");
-        for (name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss, shm_mem, shm_swap) in info
-        {
-            println!(
-                "{:<30}  {:>5}  {:>10}  {:>10} {:>10} {:>10} {:>10} {:>10}",
-                name, processes_count, mem_rss, mem_uss, swap_rss, swap_uss, shm_mem, shm_swap
-            );
-        }
+        let table = tabled::Table::new(display_info)
+            .with(tabled::settings::Style::sharp())
+            .to_string();
+        println!("{table}");
+
         debug!("Display split by {}: {:?}", self.name(), chrono.elapsed());
         println!();
     }

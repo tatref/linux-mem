@@ -31,7 +31,6 @@ use procfs::{
     PhysicalPageFlags, Shm,
 };
 use rayon::prelude::*;
-use snap::tmpfs::TmpfsMetadata;
 use snap::{
     filters, get_process_info, get_smon_info, splitters, ProcessInfo, ShmsMetadata, SmonInfo,
     TheHash,
@@ -225,37 +224,7 @@ Examples:
         std::process::exit(1);
     }
 
-    println!("Scanning tmpfs...");
-    let mountinfos = procfs::process::Process::myself().unwrap().mountinfo();
-    if let Ok(mountinfos) = mountinfos {
-        let tabled_tmpfs_metadata: Vec<TmpfsMetadata> = mountinfos
-            .into_iter()
-            .filter(|mountinfo| match mountinfo.fs_type.as_str() {
-                "tmpfs" => true,
-                _ => false,
-            })
-            .map(|mountinfo| {
-                let mount_point = mountinfo.mount_point;
-                let statvfs = nix::sys::statvfs::statvfs(&mount_point).unwrap();
-                let fs_size = statvfs.block_size() * statvfs.blocks();
-                let fs_free = statvfs.block_size() * statvfs.blocks_free();
-                let fs_used = fs_size - fs_free;
-                let tmpfs_metadata = TmpfsMetadata {
-                    mount_point: mount_point.to_string_lossy().to_string(),
-                    fs_size,
-                    fs_used,
-                };
-
-                tmpfs_metadata
-            })
-            .collect();
-
-        let table = tabled::Table::new(tabled_tmpfs_metadata).to_string();
-        println!("{table}");
-        println!();
-    } else {
-        warn!("Can't read /proc/pid/mountinfo");
-    }
+    snap::tmpfs::display_tmpfs();
 
     println!("Scanning /proc/kpageflags...");
     let mut kpageflags = procfs::KPageFlags::new().expect("Can't open /proc/kpageflags");
@@ -287,6 +256,7 @@ Examples:
         })
         .flatten()
         .collect();
+    println!();
 
     // find smons processes, and for each spawn a new process in the correct context to get database info
     println!("Scanning Oracle instances...");
@@ -503,8 +473,10 @@ Examples:
             split_env,
             split_uid,
             split_pids,
-            split_custom,
+            mut split_custom,
         } => {
+            split_custom.reverse();
+
             scan_groups(
                 my_process,
                 global_chrono,
