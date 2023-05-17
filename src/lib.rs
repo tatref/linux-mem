@@ -9,7 +9,9 @@
 // smem --processfilter=cat
 // pahole -C task_struct /sys/kernel/btf/vmlinux
 
+use colorgrad::Gradient;
 use itertools::Itertools;
+use once_cell::sync::OnceCell;
 use procfs::{
     page_size,
     process::{MMapPath, Pfn, Process},
@@ -20,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
+    fmt::Debug,
     hash::BuildHasherDefault,
     os::unix::process::CommandExt,
     process::{Command, Stdio},
@@ -38,6 +41,23 @@ pub mod filters;
 pub mod process_tree;
 pub mod splitters;
 pub mod tmpfs;
+
+fn get_gradient() -> &'static Gradient {
+    static INSTANCE: OnceCell<Gradient> = OnceCell::new();
+
+    INSTANCE.get_or_init(
+        || match std::env::var("GRAD").unwrap_or("magma".into()).as_str() {
+            "turbo" => colorgrad::turbo(),
+            "spectral" => colorgrad::spectral(),
+            "viridis" => colorgrad::viridis(),
+            "inferno" => colorgrad::inferno(),
+            "plasma" => colorgrad::plasma(),
+            "rainbow" => colorgrad::rainbow(),
+            "sinebow" => colorgrad::sinebow(),
+            _ => colorgrad::viridis(),
+        },
+    )
+}
 
 /// Convert pfn to index into non-contiguous memory mappings
 pub fn pfn_to_index(iomem: &[PhysicalMemoryMap], page_size: u64, pfn: Pfn) -> Option<u64> {
@@ -471,6 +491,20 @@ impl PartialEq for ProcessGroupInfo {
     }
 }
 
+impl Debug for ProcessGroupInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProcessGroupInfo")
+            .field("name", &self.name)
+            .field("processes", &self.processes_info.len())
+            .field("pfns", &self.pfns.len())
+            .field("swap_pages", &self.swap_pages.len())
+            .field("referenced_shm", &self.referenced_shm)
+            .field("pte", &self.pte)
+            .field("fds", &self.fds)
+            .finish()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SmonInfo {
     pub pid: i32,
@@ -587,9 +621,9 @@ pub fn get_process_info(
     })
 }
 
-pub fn processes_group_info(
+pub fn get_processes_group_info(
     processes_info: Vec<ProcessInfo>,
-    name: String,
+    name: &str,
     _shms_metadata: &ShmsMetadata,
 ) -> ProcessGroupInfo {
     let mut pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
@@ -602,12 +636,13 @@ pub fn processes_group_info(
         pfns.par_extend(&process_info.pfns);
         swap_pages.par_extend(&process_info.swap_pages);
         referenced_shm.extend(&process_info.referenced_shms);
+        // TODO: can we sum PTE?
         pte += process_info.pte;
         fds += process_info.fds;
     }
 
     ProcessGroupInfo {
-        name,
+        name: name.to_string(),
         processes_info,
         pfns,
         swap_pages,

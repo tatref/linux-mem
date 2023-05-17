@@ -14,10 +14,9 @@ use tabled::Tabled;
 
 use crate::{
     filters::{self, Filter},
-    processes_group_info, ProcessGroupInfo, ProcessInfo, TheHash,
+    get_processes_group_info, ProcessGroupInfo, ProcessInfo, TheHash,
 };
 use crate::{process_tree::ProcessTree, ShmsMetadata};
-//use snap::{processes_group_info, ProcessGroupInfo, ProcessInfo, ShmsMetadata, TheHash};
 
 pub trait ProcessSplitter<'a> {
     fn name(&self) -> String;
@@ -47,25 +46,18 @@ pub trait ProcessSplitter<'a> {
     fn display(&'a self, shm_metadata: &ShmsMetadata) {
         let chrono = std::time::Instant::now();
 
-        use crate::tmpfs::display_MiB;
         #[derive(Tabled)]
         struct ProcessGroupDisplayRow {
             group_name: String,
             procs: usize,
-            #[tabled(display_with = "display_MiB")]
             mem_rss: u64,
-            #[tabled(display_with = "display_MiB")]
             mem_uss: u64,
-            #[tabled(display_with = "display_MiB")]
             swap_rss: u64,
-            #[tabled(display_with = "display_MiB")]
             swap_uss: u64,
-            #[tabled(display_with = "display_MiB")]
             shm_mem: u64,
-            #[tabled(display_with = "display_MiB")]
             shm_swap: u64,
         }
-        //let mut info: Vec<(String, usize, u64, u64, u64, u64, u64, u64)> = Vec::new();
+
         let mut display_info: Vec<ProcessGroupDisplayRow> = Vec::new();
         let pb = ProgressBar::new(self.iter_groups().count() as u64);
         for group_1 in self.iter_groups() {
@@ -208,12 +200,12 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterCustomFilter {
                 .drain_filter(|p| filter.eval(&p.process, tree))
                 .collect();
             let process_group_info =
-                processes_group_info(some_processes, group_name.clone(), shms_metadata);
+                get_processes_group_info(some_processes, group_name, shms_metadata);
             self.groups.insert(group_name.clone(), process_group_info);
         }
 
         // remaining processes not captured by any filter
-        let other_info = processes_group_info(processes, "Other".to_string(), shms_metadata);
+        let other_info = get_processes_group_info(processes, "Other", shms_metadata);
         self.groups.insert("Other".to_string(), other_info);
     }
 
@@ -269,7 +261,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterEnvVariable {
                 "{:?}",
                 sid.as_ref().map(|os| os.to_string_lossy().to_string())
             );
-            let process_group_info = processes_group_info(some_processes, name, shms_metadata);
+            let process_group_info = get_processes_group_info(some_processes, &name, shms_metadata);
             groups.insert(sid, process_group_info);
         }
         self.groups = groups;
@@ -321,9 +313,11 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterPids {
         }
 
         let name_0 = self.pids.iter().map(|pid| pid.to_string()).join(", ");
-        let name_1 = "Others PIDs".into();
-        let process_group_info_0 = processes_group_info(processes_info_0, name_0, shms_metadata);
-        let process_group_info_1 = processes_group_info(processes_info_1, name_1, shms_metadata);
+        let name_1 = "Others PIDs";
+        let process_group_info_0 =
+            get_processes_group_info(processes_info_0, &name_0, shms_metadata);
+        let process_group_info_1 =
+            get_processes_group_info(processes_info_1, name_1, shms_metadata);
 
         self.groups.insert(0, process_group_info_0);
         self.groups.insert(1, process_group_info_1);
@@ -371,7 +365,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterUid {
             };
             let processes_info: Vec<ProcessInfo> =
                 processes.drain_filter(|p| p.uid == uid).collect();
-            let group_info = processes_group_info(processes_info, username, shms_metadata);
+            let group_info = get_processes_group_info(processes_info, &username, shms_metadata);
             self.groups.insert(uid, group_info);
         }
     }

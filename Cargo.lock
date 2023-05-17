@@ -158,9 +158,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.2.1"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24a6904aef64d73cf10ab17ebace7befb918b82164785cb89907993be7f83813"
+checksum = "6776fc96284a0bb647b615056fc496d1fe1644a7ab01829818a6d91cae888b84"
 dependencies = [
  "serde",
 ]
@@ -1137,9 +1137,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.57"
+version = "1.0.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4ec6d5fe0b140acb27c9a0444118cf55bfbb4e0b259739429abb4521dd67c16"
+checksum = "fa1fb82fc0c281dd9671101b66b771ebbe1eaf967b96ac8740dcba4b70005ca8"
 dependencies = [
  "unicode-ident",
 ]
@@ -1147,9 +1147,9 @@ dependencies = [
 [[package]]
 name = "procfs"
 version = "0.15.1"
-source = "git+https://github.com/tatref/procfs?branch=tatref#c47c1457a94baa52028b109b65070b9bdcee299d"
+source = "git+https://github.com/tatref/procfs?branch=tatref#87cdedc9f88c4f66b0e2e3d75ab8fb76e4f31977"
 dependencies = [
- "bitflags 2.2.1",
+ "bitflags 2.3.1",
  "chrono",
  "flate2",
  "hex",
@@ -1161,9 +1161,9 @@ dependencies = [
 [[package]]
 name = "procfs-core"
 version = "0.15.1"
-source = "git+https://github.com/tatref/procfs?branch=tatref#c47c1457a94baa52028b109b65070b9bdcee299d"
+source = "git+https://github.com/tatref/procfs?branch=tatref#87cdedc9f88c4f66b0e2e3d75ab8fb76e4f31977"
 dependencies = [
- "bitflags 2.2.1",
+ "bitflags 2.3.1",
  "chrono",
  "hex",
 ]
@@ -1449,6 +1449,7 @@ dependencies = [
  "log",
  "metrohash",
  "nix",
+ "once_cell",
  "oracle",
  "procfs",
  "rand 0.8.5",

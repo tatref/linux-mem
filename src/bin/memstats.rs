@@ -6,12 +6,10 @@
 //
 //
 // TODO:
-// - add tmpfs
+// - add tmpfs: shared, cache computation
 // - 0 / ~0
 // - anon / file
-// - replace libc by nix
-// - custom groups, repeated groups
-//     memstats groups groups[uid(0),uid(1000),or(comm(httpd),comm(java))]
+// - replace libc by nix?
 // - Better display code: https://github.com/zhiburt/tabled
 // - CSV output
 // - parallelize single pass
@@ -35,6 +33,7 @@ use snap::{
     filters, get_process_info, get_smon_info, splitters, ProcessInfo, ShmsMetadata, SmonInfo,
     TheHash,
 };
+
 use std::{
     collections::{HashMap, HashSet},
     hash::BuildHasherDefault,

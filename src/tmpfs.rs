@@ -1,30 +1,33 @@
 use colored::Colorize;
+use colorgrad::Gradient;
 use log::warn;
-use tabled::Tabled;
+use tabled::{settings::Modify, Tabled};
 
 #[derive(Tabled)]
 pub struct TmpfsMetadata {
     /// Mount point
     pub mount_point: String,
     /// FS size in Bytes
-    #[tabled(display_with = "display_MiB")]
     pub fs_size: u64,
     /// Free space in Bytes
-    #[tabled(display_with = "display_MiB")]
     pub fs_used: u64,
 }
 
-pub fn display_MiB(value: &u64) -> String {
+// TODO: parameterize u64
+pub fn display_color_grad(gradient: &Gradient, value: u64, max: u64, zero_is_gray: bool) -> String {
     let format = humansize::FormatSizeOptions::from(humansize::DECIMAL)
         .fixed_at(Some(humansize::FixedAt::Mega));
+    let s = humansize::format_size(value, format);
 
-    let x = humansize::format_size(*value, format);
-
-    if *value == 0 {
-        format!("{}", x.truecolor(128, 128, 128))
-    } else {
-        x
+    if value == 0 && zero_is_gray {
+        return format!("{}", s.truecolor(128, 128, 128));
     }
+
+    let t = value as f64 / max as f64;
+    let color = gradient.at(t);
+    let (r, g, b, _a) = color.to_linear_rgba_u8();
+
+    format!("{}", s.truecolor(r, g, b).bold())
 }
 
 pub fn display_tmpfs() {
@@ -53,9 +56,28 @@ pub fn display_tmpfs() {
             })
             .collect();
 
-        let table = tabled::Table::new(tabled_tmpfs_metadata)
-            .with(tabled::settings::Style::sharp())
-            .to_string();
+        let max_used = tabled_tmpfs_metadata
+            .iter()
+            .max_by_key(|x| x.fs_used)
+            .unwrap()
+            .fs_used;
+
+        let gradient = crate::get_gradient();
+
+        let mut table = tabled::Table::new(&tabled_tmpfs_metadata);
+        for (idx, record) in tabled_tmpfs_metadata.iter().enumerate() {
+            let value = record.fs_used;
+            let max = max_used;
+            let zero_is_gray = true;
+
+            table.with(
+                // skip header
+                Modify::new((idx + 1, 2)).with(tabled::settings::format::Format::content(|_s| {
+                    display_color_grad(&gradient, value, max, zero_is_gray)
+                })),
+            );
+        }
+
         println!("{table}");
         println!();
     } else {
