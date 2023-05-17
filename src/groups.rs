@@ -130,9 +130,97 @@ pub trait ProcessSplitter<'a> {
         // sort by mem RSS
         display_info.sort_by(|a, b| b.mem_rss.cmp(&a.mem_rss));
 
-        let table = tabled::Table::new(display_info)
-            .with(tabled::settings::Style::sharp())
-            .to_string();
+        let mut table = tabled::Table::new(&display_info);
+        table.with(tabled::settings::Style::sharp());
+
+        let colors = match std::env::var("COLORS")
+            .ok()
+            .map(|s| s.to_lowercase())
+            .as_deref()
+        {
+            Some("nocolors") | Some("no") => false,
+            _ => true,
+        };
+
+        // TODO: format units even if colors == false
+        if colors {
+            let max_procs = display_info.iter().map(|x| x.procs).max().unwrap() as u64;
+            let max_mem_uss = display_info.iter().map(|x| x.mem_uss).max().unwrap();
+            let max_swap_uss = display_info.iter().map(|x| x.swap_uss).max().unwrap();
+            let max_shm_mem = display_info.iter().map(|x| x.shm_mem).max().unwrap();
+            let max_shm_swap = display_info.iter().map(|x| x.shm_swap).max().unwrap();
+
+            let gradient = crate::get_gradient();
+            for (idx, record) in display_info.iter().enumerate() {
+                use tabled::settings::Format;
+                use tabled::settings::Modify;
+                let zero_is_gray = true;
+
+                // procs
+                table.with(Modify::new((idx + 1, 1)).with(Format::content(|_s| {
+                    crate::tmpfs::display_color_grad(
+                        &gradient,
+                        record.procs as u64,
+                        max_procs,
+                        zero_is_gray,
+                        false,
+                    )
+                })));
+                // mem_rss
+                table.with(Modify::new((idx + 1, 2)).with(Format::content(|_s| {
+                    crate::tmpfs::format_units_MiB(record.mem_rss)
+                })));
+                // mem_uss
+                table.with(Modify::new((idx + 1, 3)).with(Format::content(|_s| {
+                    crate::tmpfs::display_color_grad(
+                        &gradient,
+                        record.mem_uss,
+                        max_mem_uss,
+                        zero_is_gray,
+                        true,
+                    )
+                })));
+                // swap_rss
+                table.with(Modify::new((idx + 1, 4)).with(Format::content(|_s| {
+                    crate::tmpfs::format_units_MiB(record.swap_rss)
+                })));
+                // swap_uss
+                table.with(Modify::new((idx + 1, 5)).with(Format::content(|_s| {
+                    crate::tmpfs::display_color_grad(
+                        &gradient,
+                        record.swap_uss,
+                        max_swap_uss,
+                        zero_is_gray,
+                        true,
+                    )
+                })));
+                // shm_mem
+                table.with(Modify::new((idx + 1, 6)).with(Format::content(|_s| {
+                    crate::tmpfs::display_color_grad(
+                        &gradient,
+                        record.shm_mem,
+                        max_shm_mem,
+                        zero_is_gray,
+                        true,
+                    )
+                })));
+                // shm_swap
+                table.with(
+                    // skip header
+                    Modify::new((idx + 1, 7)).with(Format::content(|_s| {
+                        crate::tmpfs::display_color_grad(
+                            &gradient,
+                            record.shm_swap,
+                            max_shm_swap,
+                            zero_is_gray,
+                            true,
+                        )
+                    })),
+                );
+            }
+        }
+
+        //let table = table.to_string();
         println!("{table}");
 
         debug!("Display split by {}: {:?}", self.name(), chrono.elapsed());

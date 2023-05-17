@@ -46,7 +46,7 @@ fn get_gradient() -> &'static Gradient {
     static INSTANCE: OnceCell<Gradient> = OnceCell::new();
 
     INSTANCE.get_or_init(
-        || match std::env::var("GRAD").unwrap_or("magma".into()).as_str() {
+        || match std::env::var("COLORS").unwrap_or("magma".into()).as_str() {
             "turbo" => colorgrad::turbo(),
             "spectral" => colorgrad::spectral(),
             "viridis" => colorgrad::viridis(),
@@ -54,7 +54,7 @@ fn get_gradient() -> &'static Gradient {
             "plasma" => colorgrad::plasma(),
             "rainbow" => colorgrad::rainbow(),
             "sinebow" => colorgrad::sinebow(),
-            _ => colorgrad::viridis(),
+            _ => colorgrad::inferno(),
         },
     )
 }

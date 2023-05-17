@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use colored::Colorize;
 use colorgrad::Gradient;
 use log::warn;
@@ -13,11 +15,24 @@ pub struct TmpfsMetadata {
     pub fs_used: u64,
 }
 
-// TODO: parameterize u64
-pub fn display_color_grad(gradient: &Gradient, value: u64, max: u64, zero_is_gray: bool) -> String {
+pub fn format_units_MiB(value: u64) -> String {
     let format = humansize::FormatSizeOptions::from(humansize::DECIMAL)
         .fixed_at(Some(humansize::FixedAt::Mega));
-    let s = humansize::format_size(value, format);
+    humansize::format_size(value, format)
+}
+
+pub fn display_color_grad(
+    gradient: &Gradient,
+    value: u64,
+    max: u64,
+    zero_is_gray: bool,
+    format_units: bool,
+) -> String {
+    let s = if format_units {
+        format_units_MiB(value)
+    } else {
+        format!("{}", value)
+    };
 
     if value == 0 && zero_is_gray {
         return format!("{}", s.truecolor(128, 128, 128));
@@ -65,6 +80,7 @@ pub fn display_tmpfs() {
         let gradient = crate::get_gradient();
 
         let mut table = tabled::Table::new(&tabled_tmpfs_metadata);
+        table.with(tabled::settings::Style::sharp());
         for (idx, record) in tabled_tmpfs_metadata.iter().enumerate() {
             let value = record.fs_used;
             let max = max_used;
@@ -73,7 +89,13 @@ pub fn display_tmpfs() {
             table.with(
                 // skip header
                 Modify::new((idx + 1, 2)).with(tabled::settings::format::Format::content(|_s| {
-                    display_color_grad(&gradient, value, max, zero_is_gray)
+                    display_color_grad(&gradient, value, max, zero_is_gray, true)
+                })),
+            );
+            table.with(
+                // skip header
+                Modify::new((idx + 1, 1)).with(tabled::settings::format::Format::content(|_s| {
+                    format_units_MiB(value)
                 })),
             );
         }
