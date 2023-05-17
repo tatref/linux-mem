@@ -54,7 +54,7 @@ fn get_gradient() -> &'static Gradient {
             "plasma" => colorgrad::plasma(),
             "rainbow" => colorgrad::rainbow(),
             "sinebow" => colorgrad::sinebow(),
-            _ => colorgrad::inferno(),
+            _ => colorgrad::magma(),
         },
     )
 }
