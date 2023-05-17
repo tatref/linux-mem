@@ -21,6 +21,7 @@
 
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
+use itertools::Itertools;
 use log::warn;
 use log::{debug, error, info};
 use procfs::{
@@ -30,8 +31,7 @@ use procfs::{
 };
 use rayon::prelude::*;
 use snap::{
-    filters, get_process_info, get_smon_info, splitters, ProcessInfo, ShmsMetadata, SmonInfo,
-    TheHash,
+    filters, get_process_info, get_smon_info, groups, ProcessInfo, ShmsMetadata, SmonInfo, TheHash,
 };
 
 use std::{
@@ -41,9 +41,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use splitters::{
-    ProcessSplitter, ProcessSplitterCustomFilter, ProcessSplitterEnvVariable, ProcessSplitterPids,
-    ProcessSplitterUid,
+use groups::{
+    ProcessSplitter, ProcessSplitterCustomFilter, ProcessSplitterEnvVariable, ProcessSplitterUid,
 };
 
 use snap::process_tree::ProcessTree;
@@ -619,14 +618,6 @@ Examples:
         info!("{} processe(s) vanished", vanished_processes_count);
         info!("");
 
-        let mut processes_info = processes_info;
-        while let Some(filter) = split_custom.pop() {
-            let mut splitter = ProcessSplitterCustomFilter::new(&filter).unwrap();
-            splitter.split(tree, shms_metadata, processes_info);
-            splitter.display(shms_metadata);
-            processes_info = splitter.collect_processes();
-        }
-
         let processes_info: Vec<ProcessInfo> = if split_uid {
             let mut splitter = ProcessSplitterUid::new();
             splitter.split(tree, shms_metadata, processes_info);
@@ -645,10 +636,31 @@ Examples:
             processes_info
         };
 
-        if !split_pids.is_empty() {
-            let mut splitter = ProcessSplitterPids::new(&split_pids);
+        let processes_info = if !split_pids.is_empty() {
+            // Waiting for deletion
+            //let mut splitter = ProcessSplitterPids::new(&split_pids);
+
+            // pid(1),pid(2),pid(3),...
+            let custom_pids = split_pids
+                .iter()
+                .map(|pid| format!("pid({})", pid))
+                .join(",");
+            let expr = format!("or({})", custom_pids);
+
+            let mut splitter = ProcessSplitterCustomFilter::new(&expr).unwrap();
             splitter.split(tree, shms_metadata, processes_info);
             splitter.display(shms_metadata);
+            splitter.collect_processes()
+        } else {
+            processes_info
+        };
+
+        let mut processes_info = processes_info;
+        while let Some(filter) = split_custom.pop() {
+            let mut splitter = ProcessSplitterCustomFilter::new(&filter).unwrap();
+            splitter.split(tree, shms_metadata, processes_info);
+            splitter.display(shms_metadata);
+            processes_info = splitter.collect_processes();
         }
 
         finalize(hit_memory_limit, mem_limit, &my_process, global_chrono);

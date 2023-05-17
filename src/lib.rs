@@ -38,8 +38,8 @@ use oracle::{Connector, Privilege};
 use std::ffi::OsString;
 
 pub mod filters;
+pub mod groups;
 pub mod process_tree;
-pub mod splitters;
 pub mod tmpfs;
 
 fn get_gradient() -> &'static Gradient {
