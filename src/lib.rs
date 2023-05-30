@@ -475,7 +475,9 @@ pub struct ProcessInfo {
     pub uid: u32,
     pub environ: HashMap<OsString, OsString>,
     pub pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
+    pub anon_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
     pub swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
+    pub anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
     pub referenced_shms: HashSet<Shm>,
     pub rss: u64,
     pub vsz: u64,
@@ -487,7 +489,9 @@ pub struct ProcessGroupInfo {
     pub name: String,
     pub processes_info: Vec<ProcessInfo>,
     pub pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
+    pub anon_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
     pub swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
+    pub anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
     pub referenced_shm: HashSet<Shm>,
     pub pte: u64,
     pub fds: usize,
@@ -539,8 +543,10 @@ pub fn get_process_info(
 
     // physical memory pages
     let mut pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = Default::default();
+    let mut anon_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = Default::default();
     // swap type, offset
     let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
+    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
 
     // size of pages in memory
     let mut rss = 0;
@@ -584,11 +590,28 @@ pub fn get_process_info(
                     );
                 }
             }
-            // Count as "anon"
-            //MMapPath::Anonymous => (),
-            //MMapPath::Heap => (),
-            //MMapPath::Stack => (),
-            //MMapPath::TStack(_) => (),
+            MMapPath::Anonymous | MMapPath::Heap | MMapPath::Stack | MMapPath::TStack(_) => {
+                // Count as "anon"
+                for page in pages.iter() {
+                    match page {
+                        PageInfo::MemoryPage(memory_page) => {
+                            let pfn = memory_page.get_page_frame_number();
+                            if pfn.0 != 0 {
+                                rss += page_size;
+                            }
+                            anon_pfns.insert(pfn);
+                            pfns.insert(pfn);
+                        }
+                        PageInfo::SwapPage(swap_page) => {
+                            let swap_type = swap_page.get_swap_type();
+                            let offset = swap_page.get_swap_offset();
+
+                            anon_swap_pages.insert((swap_type, offset));
+                            swap_pages.insert((swap_type, offset));
+                        }
+                    }
+                }
+            }
             _ => {
                 // not shm
                 for page in pages.iter() {
@@ -620,8 +643,10 @@ pub fn get_process_info(
         uid,
         environ: env,
         pfns,
+        anon_pfns,
         referenced_shms,
         swap_pages,
+        anon_swap_pages,
         rss,
         vsz,
         pte,
@@ -635,16 +660,20 @@ pub fn get_processes_group_info(
     _shms_metadata: &ShmsMetadata,
 ) -> ProcessGroupInfo {
     let mut pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
+    let mut anon_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
     let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
+    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
     let mut referenced_shm = HashSet::new();
     let mut pte = 0;
     let mut fds = 0;
 
     for process_info in &processes_info {
         pfns.par_extend(&process_info.pfns);
+        anon_pfns.par_extend(&process_info.anon_pfns);
         swap_pages.par_extend(&process_info.swap_pages);
+        anon_swap_pages.par_extend(&process_info.anon_swap_pages);
         referenced_shm.extend(&process_info.referenced_shms);
-        // TODO: can we sum PTE?
+        // TODO: we can't sum PTE, this a theorical max value
         pte += process_info.pte;
         fds += process_info.fds;
     }
@@ -653,7 +682,9 @@ pub fn get_processes_group_info(
         name: name.to_string(),
         processes_info,
         pfns,
+        anon_pfns,
         swap_pages,
+        anon_swap_pages,
         referenced_shm,
         pte,
         fds,
