@@ -287,62 +287,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterEnvVariable {
             .collect()
     }
 }
-//pub struct ProcessSplitterPids {
-//    pids: Vec<i32>,
-//    groups: BTreeMap<u8, ProcessGroupInfo>,
-//}
-//
-//impl ProcessSplitterPids {
-//    pub fn new(pids: &[i32]) -> Self {
-//        Self {
-//            pids: pids.to_vec(),
-//            groups: BTreeMap::new(),
-//        }
-//    }
-//}
-//impl<'a> ProcessSplitter<'a> for ProcessSplitterPids {
-//    type GroupIter<'b: 'a> = std::collections::btree_map::Values<'a, u8, ProcessGroupInfo>;
-//
-//    fn name(&self) -> String {
-//        "PID list".to_string()
-//    }
-//    fn __split(
-//        &mut self,
-//        _tree: &ProcessTree,
-//        shms_metadata: &ShmsMetadata,
-//        processes: Vec<ProcessInfo>,
-//    ) {
-//        let mut processes_info_0: Vec<ProcessInfo> = Vec::new();
-//        let mut processes_info_1: Vec<ProcessInfo> = Vec::new();
-//
-//        for p in processes {
-//            if self.pids.contains(&p.process.pid) {
-//                processes_info_0.push(p);
-//            } else {
-//                processes_info_1.push(p);
-//            }
-//        }
-//
-//        let name_0 = self.pids.iter().map(|pid| pid.to_string()).join(", ");
-//        let name_1 = "Others PIDs";
-//        let process_group_info_0 =
-//            get_processes_group_info(processes_info_0, &name_0, shms_metadata);
-//        let process_group_info_1 =
-//            get_processes_group_info(processes_info_1, name_1, shms_metadata);
-//
-//        self.groups.insert(0, process_group_info_0);
-//        self.groups.insert(1, process_group_info_1);
-//    }
-//    fn iter_groups<'x>(&'a self) -> Self::GroupIter<'a> {
-//        self.groups.values()
-//    }
-//    fn collect_processes(self) -> Vec<ProcessInfo> {
-//        self.groups
-//            .into_values()
-//            .flat_map(|group| group.processes_info)
-//            .collect()
-//    }
-//}
+
 pub struct ProcessSplitterUid {
     groups: BTreeMap<u32, ProcessGroupInfo>,
 }
