@@ -9,9 +9,7 @@
 // smem --processfilter=cat
 // pahole -C task_struct /sys/kernel/btf/vmlinux
 
-use colorgrad::Gradient;
 use itertools::Itertools;
-use once_cell::sync::OnceCell;
 use procfs::{
     page_size,
     process::{MMapPath, Pfn, Process},
@@ -22,10 +20,11 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
-    fmt::Debug,
+    fmt::{Debug, Display},
     hash::BuildHasherDefault,
     os::unix::process::CommandExt,
     process::{Command, Stdio},
+    str::FromStr,
 };
 
 use log::{info, warn};
@@ -41,23 +40,6 @@ pub mod filters;
 pub mod groups;
 pub mod process_tree;
 pub mod tmpfs;
-
-fn get_gradient() -> &'static Gradient {
-    static INSTANCE: OnceCell<Gradient> = OnceCell::new();
-
-    INSTANCE.get_or_init(
-        || match std::env::var("COLORS").unwrap_or("magma".into()).as_str() {
-            "turbo" => colorgrad::turbo(),
-            "spectral" => colorgrad::spectral(),
-            "viridis" => colorgrad::viridis(),
-            "inferno" => colorgrad::inferno(),
-            "plasma" => colorgrad::plasma(),
-            "rainbow" => colorgrad::rainbow(),
-            "sinebow" => colorgrad::sinebow(),
-            _ => colorgrad::magma(),
-        },
-    )
-}
 
 /// Convert pfn to index into non-contiguous memory mappings
 pub fn pfn_to_index(iomem: &[PhysicalMemoryMap], page_size: u64, pfn: Pfn) -> Option<u64> {
@@ -383,9 +365,35 @@ pub fn get_memory_maps_for_process(
     Ok(result)
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub enum LargePages {
+    True,
+    False,
+    Only,
+}
+
+impl Display for LargePages {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl FromStr for LargePages {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "TRUE" => Ok(LargePages::True),
+            "FALSE" => Ok(LargePages::False),
+            "ONLY" => Ok(LargePages::Only),
+            _ => Err(format!("Can't parse {:?} as LargePage value", s)),
+        }
+    }
+}
+
 /// Connect to DB using OS auth and env vars
 /// return size of SGA
-pub fn get_db_info() -> Result<(u64, u64, u64, String), Box<dyn std::error::Error>> {
+pub fn get_db_info() -> Result<(u64, u64, u64, LargePages), Box<dyn std::error::Error>> {
     let mut connector = Connector::new("", "", "");
     let mut connector = connector.external_auth(true);
     connector = if std::env::var("ORACLE_SID").unwrap().contains("+ASM") {
@@ -401,7 +409,7 @@ pub fn get_db_info() -> Result<(u64, u64, u64, String), Box<dyn std::error::Erro
     let (processes, pga) = conn.query_row_as::<(u64, u64)>(sql, &[])?;
 
     let sql = "select value from v$parameter where name = 'use_large_pages'";
-    let large_pages = conn.query_row_as::<String>(sql, &[])?;
+    let large_pages: LargePages = conn.query_row_as::<String>(sql, &[])?.parse()?;
 
     Ok((sga_size, processes, pga, large_pages))
 }
@@ -510,7 +518,7 @@ pub struct SmonInfo {
     pub pid: i32,
     pub sid: OsString,
     pub sga_size: u64,
-    pub large_pages: String,
+    pub large_pages: LargePages,
     pub processes: u64,
     pub pga_size: u64,
     //sga_shm: Shm,

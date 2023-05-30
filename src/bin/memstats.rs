@@ -30,9 +30,12 @@ use procfs::{
     PhysicalPageFlags, Shm,
 };
 use rayon::prelude::*;
+use snap::tmpfs::format_units_MiB;
 use snap::{
-    filters, get_process_info, get_smon_info, groups, ProcessInfo, ShmsMetadata, SmonInfo, TheHash,
+    filters, get_process_info, get_smon_info, groups, LargePages, ProcessInfo, ShmsMetadata,
+    SmonInfo, TheHash,
 };
+use tabled::Tabled;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -137,7 +140,11 @@ Examples:
             #[arg(short = 'p', long, action = clap::ArgAction::Append)]
             split_pids: Vec<i32>,
 
-            #[arg(long, help = "Comma separated list of filters, evaluated in order")]
+            #[arg(
+                short = 'c',
+                long,
+                help = "Comma separated list of filters, evaluated in order. Can be repeated to create multiple reports"
+            )]
             split_custom: Vec<String>,
         },
     }
@@ -177,8 +184,7 @@ Examples:
         std::process::exit(0);
     }
     // can't print anything before that line
-
-    //dbg!(&cli);
+    // -------------------------------------
 
     let mem_limit = if let Some(m) = cli.mem_limit {
         m
@@ -276,20 +282,35 @@ Examples:
 
     instances.sort_by(|a, b| a.sga_size.cmp(&b.sga_size).reverse());
 
+    #[derive(Tabled)]
+    struct InstanceDisplayRow {
+        sid: String,
+        #[tabled(display_with = "format_units_MiB")]
+        sga: u64,
+        #[tabled(display_with = "format_units_MiB")]
+        pga: u64,
+        processes: u64,
+        large_pages: LargePages,
+    }
+
     if !instances.is_empty() {
         println!("Oracle instances (MiB):");
-        println!("SID                  SGA         PGA  PROCESSES  LARGE_PAGES");
-        println!("============================================================");
-        for instance in &instances {
-            println!(
-                "{:<12} {:>12} {:>10} {:>10} {:>12}",
-                instance.sid.to_string_lossy(),
-                instance.sga_size / 1024 / 1024,
-                instance.pga_size / 1024 / 1024,
-                instance.processes,
-                instance.large_pages,
-            );
-        }
+
+        let display_info: Vec<InstanceDisplayRow> = instances
+            .iter()
+            .map(|instance| InstanceDisplayRow {
+                sid: instance.sid.to_string_lossy().to_string(),
+                sga: instance.sga_size,
+                pga: instance.pga_size,
+                processes: instance.processes,
+                large_pages: instance.large_pages,
+            })
+            .collect();
+
+        let mut table = tabled::Table::new(&display_info);
+        table.with(tabled::settings::Style::sharp());
+        println!("{}", table.to_string());
+
         println!();
     } else {
         println!("Can't locate any Oracle instance");
@@ -297,7 +318,7 @@ Examples:
     }
 
     println!("Scanning shm...");
-    // TODO: remove twice read
+    // TODO: remove double read
     for shm in procfs::SharedMemorySegments::current()
         .expect("Can't read /dev/sysvipc/shm")
         .0
@@ -311,8 +332,13 @@ Examples:
         .expect("Can't read /dev/sysvipc/shm")
         .0
     {
-        // TODO remove unwrap for Result
-        let x = snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm).unwrap();
+        let x = match snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm) {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Can't read shm {} {e:?}", shm.key);
+                continue;
+            }
+        };
 
         shms_metadata.insert(shm, x);
     }
@@ -321,12 +347,28 @@ Examples:
         let mut shms: Vec<Shm> = shms_metadata.keys().copied().collect();
         shms.sort_by(|a, b| a.size.cmp(&b.size).reverse());
 
+        #[derive(Tabled)]
+        struct ShmDisplayRow {
+            key: i32,
+            shmid: u64,
+            #[tabled(display_with = "format_units_MiB")]
+            size: u64,
+            #[tabled(display_with = "format_units_MiB")]
+            rss: u64,
+            pages_4k: u64,
+            pages_2M: u64,
+            #[tabled(display_with = "format_units_MiB")]
+            swap: u64,
+            used: f32,
+            sid: String,
+        }
+
         println!("Shared memory segments (MiB):");
-        println!("         key           id       Size        RSS         4k/2M        SWAP   USED%        SID",);
-        println!("============================================================================================",);
+        let mut shm_display = Vec::new();
         for shm in &shms {
             let mut sid_list = Vec::new();
             for instance in &instances {
+                // we associate each shm with an sid by looking for smon processes
                 let Ok(process) = Process::new(instance.pid) else {
                     continue;
                 };
@@ -341,26 +383,30 @@ Examples:
 
             // TODO: remove unwrap
             let (pages_4k, pages_2M) = match shms_metadata.get(shm).unwrap() {
-                Some((_pfns, _swap_pages, pages_4k, pages_2M)) => {
-                    (format!("{}", pages_4k), format!("{}", pages_2M))
-                }
-                None => ("-".to_string(), "-".to_string()),
+                Some((_pfns, _swap_pages, pages_4k, pages_2M)) => (*pages_4k, *pages_2M),
+                None => (0, 0),
             };
 
-            println!(
-                "{:>12} {:>12} {:>10} {:>10} {:>10}/{:<6} {:>7} {:>7.2} {:>10}",
-                shm.key,
-                shm.shmid,
-                shm.size / 1024 / 1024,
-                shm.rss / 1024 / 1024,
-                pages_4k,
-                pages_2M,
-                shm.swap / 1024 / 1024,
-                (shm.rss + shm.swap) as f32 / shm.size as f32 * 100.,
-                sid_list.join(" ")
-            );
-            // USED% can be >100% if size is not aligned with the underling pages: in that case, size<rss+swap
+            let shm_display_row = ShmDisplayRow {
+                key: shm.key,
+                shmid: shm.shmid,
+                size: shm.size,
+                rss: shm.rss,
+                pages_2M: pages_2M as u64,
+                pages_4k: pages_4k as u64,
+                swap: shm.swap,
+                // USED% can be >100% if size is not aligned with the underling pages: in that case, size < rss+swap
+                used: (shm.rss + shm.swap) as f32 / shm.size as f32 * 100.,
+                sid: sid_list.join(" "),
+            };
+            shm_display.push(shm_display_row);
         }
+
+        let mut table = tabled::Table::new(&shm_display);
+        table.with(tabled::settings::Style::sharp());
+
+        println!("{table}");
+
         println!();
     } else {
         println!("Can't locate any shared memory segment");
@@ -618,6 +664,7 @@ Examples:
         info!("{} processe(s) vanished", vanished_processes_count);
         info!("");
 
+        println!();
         let processes_info: Vec<ProcessInfo> = if split_uid {
             let mut splitter = ProcessSplitterUid::new();
             splitter.split(tree, shms_metadata, processes_info);
@@ -641,11 +688,16 @@ Examples:
             //let mut splitter = ProcessSplitterPids::new(&split_pids);
 
             // pid(1),pid(2),pid(3),...
-            let custom_pids = split_pids
-                .iter()
-                .map(|pid| format!("pid({})", pid))
-                .join(",");
-            let expr = format!("or({})", custom_pids);
+            let expr = match split_pids.len() {
+                1 => format!("pid({})", split_pids.first().unwrap()),
+                _ => {
+                    let custom_pids = split_pids
+                        .iter()
+                        .map(|pid| format!("pid({})", pid))
+                        .join(",");
+                    format!("or({})", custom_pids)
+                }
+            };
 
             let mut splitter = ProcessSplitterCustomFilter::new(&expr).unwrap();
             splitter.split(tree, shms_metadata, processes_info);
