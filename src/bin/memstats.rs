@@ -50,7 +50,9 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let global_chrono = std::time::Instant::now();
 
-    const AFTER_HELP: &str = r"/!\ Always set a memory limit /!\
+    const AFTER_HELP: &str = r"Homepage: https://github.com/tatref/linux-mem
+
+/!\ Always set a memory limit /!\
 
 Default limits:
     - memory: available memory / 2
