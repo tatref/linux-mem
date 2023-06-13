@@ -54,7 +54,11 @@ pub trait ProcessSplitter<'a> {
             #[tabled(display_with = "format_units_MiB")]
             mem_rss: u64,
             #[tabled(display_with = "format_units_MiB")]
+            mem_anon: u64,
+            #[tabled(display_with = "format_units_MiB")]
             mem_uss: u64,
+            #[tabled(display_with = "format_units_MiB")]
+            swap_anon: u64,
             #[tabled(display_with = "format_units_MiB")]
             swap_rss: u64,
             #[tabled(display_with = "format_units_MiB")]
@@ -84,7 +88,7 @@ pub trait ProcessSplitter<'a> {
                 match meta {
                     Some((shm_pfns, _swap_pages, _pages_4k, _pages_2M)) => {
                         if other_referenced_shm.contains(shm) {
-                            other_pfns.par_extend(shm_pfns);
+                            //other_pfns.par_extend(shm_pfns);
                         }
                     }
                     None => (),
@@ -98,7 +102,7 @@ pub trait ProcessSplitter<'a> {
                         if group_1.referenced_shm.contains(shm) {
                             // TODO: we count shm as rss
                             // do something else?
-                            group_1_pfns.par_extend(shm_pfns);
+                            //group_1_pfns.par_extend(shm_pfns);
                         }
                     }
                     None => (),
@@ -106,9 +110,11 @@ pub trait ProcessSplitter<'a> {
             }
             let processes_count = group_1.processes_info.len();
             let mem_rss = group_1_pfns.len() as u64 * procfs::page_size();
+            let mem_anon = group_1.anon_pfns.len() as u64 * procfs::page_size();
             let mem_uss = group_1_pfns.difference(&other_pfns).count() as u64 * procfs::page_size();
 
             let swap_rss = group_1.swap_pages.len() as u64 * procfs::page_size();
+            let swap_anon = group_1.anon_swap_pages.len() as u64 * procfs::page_size();
             let swap_uss =
                 group_1.swap_pages.difference(&other_swap).count() as u64 * procfs::page_size();
 
@@ -128,8 +134,10 @@ pub trait ProcessSplitter<'a> {
                 group_name: group_1.name.clone(),
                 procs: processes_count,
                 mem_rss,
+                mem_anon,
                 mem_uss,
                 swap_rss,
+                swap_anon,
                 swap_uss,
                 shm_mem,
                 shm_swap,

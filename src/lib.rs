@@ -590,7 +590,28 @@ pub fn get_process_info(
                     );
                 }
             }
-            MMapPath::Anonymous | MMapPath::Heap | MMapPath::Stack | MMapPath::TStack(_) => {
+            MMapPath::Path(_) => {
+                // not shm
+                for page in pages.iter() {
+                    match page {
+                        PageInfo::MemoryPage(memory_page) => {
+                            let pfn = memory_page.get_page_frame_number();
+                            if pfn.0 != 0 {
+                                rss += page_size;
+                            }
+                            pfns.insert(pfn);
+                        }
+                        PageInfo::SwapPage(swap_page) => {
+                            let swap_type = swap_page.get_swap_type();
+                            let offset = swap_page.get_swap_offset();
+
+                            swap_pages.insert((swap_type, offset));
+                        }
+                    }
+                }
+            }
+            //MMapPath::Anonymous | MMapPath::Heap | MMapPath::Stack | MMapPath::TStack(_) => {
+            _ => {
                 // Count as "anon"
                 for page in pages.iter() {
                     match page {
@@ -607,26 +628,6 @@ pub fn get_process_info(
                             let offset = swap_page.get_swap_offset();
 
                             anon_swap_pages.insert((swap_type, offset));
-                            swap_pages.insert((swap_type, offset));
-                        }
-                    }
-                }
-            }
-            _ => {
-                // not shm
-                for page in pages.iter() {
-                    match page {
-                        PageInfo::MemoryPage(memory_page) => {
-                            let pfn = memory_page.get_page_frame_number();
-                            if pfn.0 != 0 {
-                                rss += page_size;
-                            }
-                            pfns.insert(pfn);
-                        }
-                        PageInfo::SwapPage(swap_page) => {
-                            let swap_type = swap_page.get_swap_type();
-                            let offset = swap_page.get_swap_offset();
-
                             swap_pages.insert((swap_type, offset));
                         }
                     }

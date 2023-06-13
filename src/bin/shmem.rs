@@ -93,16 +93,16 @@ fn read_shm(shmid: i32, size: usize, _wait: bool) {
 
     println!("INFO: got ptr: {:p}", ptr);
 
-    let mut total = 0;
+    let mut dummy = 0;
     for i in 0..size {
         unsafe {
             let ptr2 = ptr.add(i);
 
             let val: u8 = ptr2.read();
-            total += val;
+            dummy += val;
         }
     }
-    dbg!(total);
+    std::hint::black_box(dummy);
 
     if _wait {
         wait();

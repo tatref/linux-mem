@@ -6,15 +6,11 @@
 //
 //
 // TODO:
+// - better error message for too many open files
 // - add tmpfs: shared, cache computation
-// - 0 / ~0
 // - anon / file
 // - replace libc by nix?
-// - Better display code: https://github.com/zhiburt/tabled
-// - CSV output
 // - parallelize single pass
-// - merge splitters into CustomSplitters
-// - clap commands for splits
 // - remove unwraps
 // - custom hashset for u64?
 //
@@ -359,6 +355,7 @@ Examples:
             pages_2M: u64,
             #[tabled(display_with = "format_units_MiB")]
             swap: u64,
+            #[tabled(rename = "used %")]
             used: f32,
             sid: String,
         }
