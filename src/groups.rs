@@ -216,7 +216,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterCustomFilter {
     ) {
         for (group_name, filter) in self.names.iter().zip(&self.filters) {
             let some_processes = processes
-                .drain_filter(|p| filter.eval(&p.process, tree))
+                .extract_if(|p| filter.eval(&p.process, tree))
                 .collect();
             let process_group_info =
                 get_processes_group_info(some_processes, group_name, shms_metadata);
@@ -274,7 +274,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterEnvVariable {
         let mut groups: HashMap<Option<OsString>, ProcessGroupInfo> = HashMap::new();
         for sid in sids {
             let some_processes: Vec<ProcessInfo> = processes
-                .drain_filter(|p| p.environ.get(&self.var) == sid.as_ref())
+                .extract_if(|p| p.environ.get(&self.var) == sid.as_ref())
                 .collect();
             let name = format!(
                 "{:?}",
@@ -328,7 +328,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterUid {
                 None => format!("{uid}"),
             };
             let processes_info: Vec<ProcessInfo> =
-                processes.drain_filter(|p| p.uid == uid).collect();
+                processes.extract_if(|p| p.uid == uid).collect();
             let group_info = get_processes_group_info(processes_info, &username, shms_metadata);
             self.groups.insert(uid, group_info);
         }

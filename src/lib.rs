@@ -1,4 +1,4 @@
-#![feature(drain_filter)]
+#![feature(extract_if)]
 #![feature(setgroups)]
 #![allow(non_snake_case)]
 
@@ -423,7 +423,7 @@ pub fn find_smons() -> Vec<(i32, u32, OsString, OsString)> {
             let cmdline = proc.as_ref().ok()?.cmdline().ok()?;
 
             if cmdline.len() == 1
-                && (cmdline[0].starts_with("ora_smon_") || cmdline[0].starts_with("asm_smon_"))
+                && (cmdline[0].starts_with("ora_pmon_") || cmdline[0].starts_with("asm_pmon_"))
             {
                 info!("Found smon {}", cmdline[0]);
                 Some(proc.ok()?)
