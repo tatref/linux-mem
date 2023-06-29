@@ -31,7 +31,9 @@ PFN=0x0000109d5b MemoryPageFlags(SOFT_DIRTY | FILE | PRESENT | 0x109d5b) / Some(
 
 ## [memstats](src/bin/memstats.rs)
 
-Memory usage for groups of processes. RSS and USS are computed from physical pages
+Memory usage for groups of processes.
+
+![Memory groups Venn diagram RSS USS](./assets/uss_rss.png)
 
 Groups can be created by user, by environment variable, by user provided PIDs list, or by custom filters
 
@@ -147,8 +149,6 @@ Custom splitter
 1. For each process, compute the set of pages referenced (via `/proc/<pid>/smaps` and `/proc/<pid>/pagemap`)
 1. For each process group, compute the union of sets
 1. For each group, compute the difference between this groups' set and others', this gives the group USS (memory only referenced by processes in this group). RSS is memory referenced by this group that may also be referenced by processes in other groups
-
-![Memory groups Venn diagram RSS USS](./assets/uss_rss.png)
 
 ### Building
 
