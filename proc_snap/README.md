@@ -19,6 +19,7 @@ This is not a real snapshot as it is not consistent
   * FUSE (since Linux 4.5)
   * GFS2 (since Linux 4.15)
 
+This tool uses sparse files inside the tar.gz. At the moment, 7-Zip cannot open such a file (see https://sourceforge.net/p/sevenzip/discussion/45797/thread/5b5abf1956/)
 
 ### Redhat 6
 
