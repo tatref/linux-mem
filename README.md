@@ -148,7 +148,7 @@ Custom splitter
 1. For each process group, compute the union of sets
 1. For each group, compute the difference between this groups' set and others', this gives the group USS (memory only referenced by processes in this group). RSS is memory referenced by this group that may also be referenced by processes in other groups
 
-![Memory groups Venn diagram RSS USS](./assets/uss_rss.svg)
+![Memory groups Venn diagram RSS USS](./assets/uss_rss.png)
 
 ### Building
 
