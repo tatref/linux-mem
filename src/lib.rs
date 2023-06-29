@@ -370,6 +370,7 @@ pub enum LargePages {
     True,
     False,
     Only,
+    AutoOnly,
 }
 
 impl Display for LargePages {
@@ -386,6 +387,7 @@ impl FromStr for LargePages {
             "TRUE" => Ok(LargePages::True),
             "FALSE" => Ok(LargePages::False),
             "ONLY" => Ok(LargePages::Only),
+            "AUTO_ONLY" => Ok(LargePages::AutoOnly),
             _ => Err(format!("Can't parse {:?} as LargePage value", s)),
         }
     }
@@ -470,6 +472,12 @@ pub type ShmsMetadata = HashMap<
     BuildHasherDefault<TheHash>,
 >;
 
+#[derive(Hash, Eq, PartialEq, Debug, Copy, Clone)]
+pub struct ShmReference {
+    key: i32,
+    shmid: u64,
+}
+
 pub struct ProcessInfo {
     pub process: Process,
     pub uid: u32,
@@ -483,6 +491,7 @@ pub struct ProcessInfo {
     pub vsz: u64,
     pub pte: u64,
     pub fds: usize,
+    pub unknown_shm: HashSet<ShmReference>,
 }
 
 pub struct ProcessGroupInfo {
@@ -566,6 +575,8 @@ pub fn get_process_info(
 
     let mut referenced_shms = HashSet::new();
 
+    let mut unknown_shm = HashSet::new();
+
     for (memory_map, pages) in memory_maps.iter() {
         let size = memory_map.address.1 - memory_map.address.0;
         vsz += size;
@@ -584,6 +595,10 @@ pub fn get_process_info(
                     }
                 }
                 if !found {
+                    unknown_shm.insert(ShmReference {
+                        key: *key,
+                        shmid: memory_map.inode,
+                    });
                     warn!(
                         "Cant' find shm key {:?} shmid {:?} for pid {}",
                         key, memory_map.inode, process.pid
@@ -652,6 +667,7 @@ pub fn get_process_info(
         vsz,
         pte,
         fds,
+        unknown_shm,
     })
 }
 

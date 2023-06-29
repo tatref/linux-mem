@@ -6,6 +6,7 @@
 //
 //
 // TODO:
+// - unreadable shm pages
 // - better error message for too many open files
 // - add tmpfs: shared, cache computation
 // - anon / file
@@ -337,7 +338,6 @@ Examples:
                 continue;
             }
         };
-
         shms_metadata.insert(shm, x);
     }
 
@@ -353,8 +353,8 @@ Examples:
             size: u64,
             #[tabled(display_with = "format_units_MiB")]
             rss: u64,
-            pages_4k: u64,
-            pages_2M: u64,
+            pages_4k: String,
+            pages_2M: String,
             #[tabled(display_with = "format_units_MiB")]
             swap: u64,
             #[tabled(rename = "used %")]
@@ -382,8 +382,10 @@ Examples:
 
             // TODO: remove unwrap
             let (pages_4k, pages_2M) = match shms_metadata.get(shm).unwrap() {
-                Some((_pfns, _swap_pages, pages_4k, pages_2M)) => (*pages_4k, *pages_2M),
-                None => (0, 0),
+                Some((_pfns, _swap_pages, pages_4k, pages_2M)) => {
+                    (format!("{}", pages_4k), format!("{}", pages_2M))
+                }
+                None => ("-".into(), "-".into()),
             };
 
             let shm_display_row = ShmDisplayRow {
@@ -391,8 +393,8 @@ Examples:
                 shmid: shm.shmid,
                 size: shm.size,
                 rss: shm.rss,
-                pages_2M: pages_2M as u64,
-                pages_4k: pages_4k as u64,
+                pages_2M,
+                pages_4k,
                 swap: shm.swap,
                 // USED% can be >100% if size is not aligned with the underling pages: in that case, size < rss+swap
                 used: (shm.rss + shm.swap) as f32 / shm.size as f32 * 100.,
@@ -662,6 +664,47 @@ Examples:
         );
         info!("{} processe(s) vanished", vanished_processes_count);
         info!("");
+
+        {
+            // scan missing SHM
+            let missing_shms: Vec<_> = processes_info
+                .iter()
+                .filter_map(|process_info| {
+                    if process_info.unknown_shm.is_empty() {
+                        None
+                    } else {
+                        Some((process_info.process.pid, process_info.unknown_shm.clone()))
+                    }
+                })
+                .collect();
+            let mut more_pids_and_shm = HashMap::new();
+            for (pid, shms) in &missing_shms {
+                for shm in shms {
+                    more_pids_and_shm.entry(shm).or_insert(Vec::new()).push(pid);
+                }
+            }
+
+            dbg!(&more_pids_and_shm);
+
+            for (shm, pids) in more_pids_and_shm.iter_mut() {
+                for p in pids {
+                    // TODO
+                    //let if Ok(shm_metadata) = scan_pid_shm(p, shm) {
+                    //  shm.append(shm_metadata);
+                    //  for pid in &pids {
+                    //      for process_info in processes_info.iter_mut() {
+                    //          if process_info.process.pid == pid {
+                    //              process_info.referenced_shm.insert(shm_metadata);
+                    //          }
+                    //      }
+                    //  }
+                    //  break;
+                    //}
+                    //else {
+                    //};
+                }
+            }
+        }
 
         println!();
         let processes_info: Vec<ProcessInfo> = if split_uid {
