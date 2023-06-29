@@ -229,55 +229,55 @@
          style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:21.3333px;font-family:Consolas;-inkscape-font-specification:'Consolas, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#00cc00">Group B</tspan></text>
     <text
        xml:space="preserve"
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:21.3333px;font-family:Consolas;-inkscape-font-specification:'Consolas, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:279.142;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.071;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:21.3333px;font-family:Consolas;-inkscape-font-specification:'Consolas, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:279.142;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.071;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke"
        x="514.7901"
        y="371.41653"
        id="text1965"
        transform="translate(-75.638014,92.571898)"><tspan
          x="514.7901"
          y="371.41653"
-         id="tspan6635">Memory only referenced </tspan><tspan
+         id="tspan6699">Memory only referenced </tspan><tspan
          x="514.7901"
          y="398.08317"
-         id="tspan6637">by processes in group A
+         id="tspan6701">by processes in group A
 </tspan><tspan
          x="514.7901"
          y="424.7498"
-         id="tspan6639">&quot;mem_uss&quot;</tspan></text>
+         id="tspan6703">&quot;mem_uss&quot;</tspan></text>
     <text
        xml:space="preserve"
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:21.3333px;font-family:Consolas;-inkscape-font-specification:'Consolas, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:279.142;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.071;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:21.3333px;font-family:Consolas;-inkscape-font-specification:'Consolas, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:279.142;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.071;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke"
        x="514.7901"
        y="371.41653"
        id="text1965-0"
        transform="translate(-357.71217,-336.91775)"><tspan
          x="514.7901"
          y="371.41653"
-         id="tspan6641">Memory referenced by </tspan><tspan
+         id="tspan6705">Memory referenced by </tspan><tspan
          x="514.7901"
          y="398.08317"
-         id="tspan6643">processes in group C
+         id="tspan6707">processes in group B
 </tspan><tspan
          x="514.7901"
          y="424.7498"
-         id="tspan6645">&quot;mem_rss&quot;</tspan></text>
+         id="tspan6709">&quot;mem_rss&quot;</tspan></text>
     <text
        xml:space="preserve"
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:21.3333px;font-family:Consolas;-inkscape-font-specification:'Consolas, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:310.033;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.071;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:21.3333px;font-family:Consolas;-inkscape-font-specification:'Consolas, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:310.033;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.071;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke"
        x="514.7901"
        y="371.41653"
        id="text1965-4"
        transform="translate(17.303948,-18.840361)"><tspan
          x="514.7901"
          y="371.41653"
-         id="tspan6647">Memory referenced by </tspan><tspan
+         id="tspan6711">Memory referenced by </tspan><tspan
          x="514.7901"
          y="398.08317"
-         id="tspan6649">processes in groups A &amp; C
+         id="tspan6713">processes in groups A &amp; C
 </tspan><tspan
          x="514.7901"
          y="424.7498"
-         id="tspan6651">Not necessarily shared mem
+         id="tspan6715">Not necessarily shared mem
 </tspan></text>
     <path
        style="fill:#bfbfbf;fill-opacity:1;stroke:none;stroke-width:3.46693;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke"
