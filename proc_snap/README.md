@@ -1,8 +1,8 @@
 # snap.py
 
-Take a snapshot of /proc for later inspection
+Take a "snapshot" of /proc for later inspection
 
-Snapshot is inconsistent
+This is not a real snapshot as it is not consistent
 
 
 ## Requirements
@@ -84,5 +84,19 @@ TODO
 ### Redhat 9
 
 ```
-yum install tar
+# yum install tar
+$ tar --version
+tar (GNU tar) 1.34
 ```
+
+```
+# ./snap.py run /tmp/snap123
+22:40:27 line 416 INFO: Dump archive = /tmp/snap123.tar.gz
+22:40:27 line 446 INFO: Collecting...
+
+$ ls -ltrh /tmp/snap123.tar.gz 
+-rw-r--r-- 1 root root 3.8M Jun 29 22:40 /tmp/snap123.tar.gz
+```
+
+
+
