@@ -151,6 +151,7 @@ Custom splitter
 1. For each group, compute the difference between this groups' set and others', this gives the group USS (memory only referenced by processes in this group). RSS is memory referenced by this group that may also be referenced by processes in other groups
 
 ### Building
+Grab a precompiled portable build in the [releases](https://github.com/tatref/linux-mem/releases)
 
 Multiple hash functions can be used. Seems that `fxhash` is the fastest
 
@@ -178,6 +179,7 @@ Or if you don't need a portable binary
 ```
 cargo build --release --bin memstats
 ```
+
 
 ## [processes2png](src/bin/processes2png.rs)
 
