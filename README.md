@@ -33,7 +33,7 @@ PFN=0x0000109d5b MemoryPageFlags(SOFT_DIRTY | FILE | PRESENT | 0x109d5b) / Some(
 
 Memory usage for groups of processes.
 
-![Memory groups Venn diagram RSS USS](./assets/uss_rss.png)
+![Memory groups Venn diagram RSS USS](./assets/uss_rss.png#1)
 
 Groups can be created by user, by environment variable, by user provided PIDs list, or by custom filters
 
