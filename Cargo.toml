@@ -31,7 +31,7 @@ tar = "0.4.37"
 
 libc = "0.2.144"
 
-procfs = { git = "https://github.com/eminence/procfs", branch = "master" }
+procfs = "0.16"
 
 #egui = "0.20.0"
 image = { version = "0.24.5", default_features = false, features = ["png"] }
