@@ -63,4 +63,5 @@ rustix = { version = "0.37.19", features = ["fs"] }
 nix = { version = "0.26.2", features = ["fs"], default-features = false }
 tabled = { version = "0.12.0" }
 colored = "2.0.0"
+macroquad = "0.4.4"
 #once_cell = "1.17.1"
