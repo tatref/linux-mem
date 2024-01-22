@@ -165,8 +165,6 @@ features :
 
 Require a nighly compiler
 
-Require main branch of procfs until v0.16 is released
-
 To compile for old glibc, install [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild)
 
 Via zigbuild
@@ -177,7 +175,7 @@ RUSTFLAGS="-C target-cpu=$arch" cargo zigbuild --release --bin memstats --target
 
 Or if you don't need a portable binary
 ```
-cargo build --release --bin memstats
+cargo +nightly build --release --bin memstats
 ```
 
 
