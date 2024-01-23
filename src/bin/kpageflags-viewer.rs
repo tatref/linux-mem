@@ -79,7 +79,7 @@ async fn main() {
     for map in iomem.iter() {
         let (start, end) = map.get_range().get();
         for pfn in start.0..end.0 {
-            let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
+            let index = snap::pfn_to_index(&iomem, Pfn(pfn)).unwrap();
             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
 
             default_img.set_pixel(x as u32, y as u32, Color::from_rgba(64, 64, 64, 255));
@@ -101,7 +101,7 @@ async fn main() {
     let mut rgb_selector = 0;
     let mut rgb_flag_names = [String::new(), String::new(), String::new()];
 
-    let mut mouse_world = Vec2::ZERO;
+    let mut mouse_world: Vec2;
     let mut segments = get_segments(&iomem, &mut kpageflags);
 
     // first loop
@@ -183,13 +183,8 @@ async fn main() {
                 assert_eq!(end_pfn.0 - start_pfn.0, flags.len() as u64);
 
                 for (pfn, &flag) in (start_pfn.0..end_pfn.0).zip(flags.iter()) {
-                    let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
+                    let index = snap::pfn_to_index(&iomem, Pfn(pfn)).unwrap();
                     let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
-
-                    let color_on = Color::from_rgba(0, 200, 200, 255);
-                    let color_off = Color::from_rgba(0, 100, 100, 255);
-
-                    let mut c = [0u8, 0, 0];
 
                     let r_flag = PhysicalPageFlags::all()
                         .iter()
@@ -204,7 +199,7 @@ async fn main() {
                         .nth(rgb_offsets[2] as usize)
                         .unwrap();
 
-                    //if flag.contains(PhysicalPageFlags::BUDDY) {
+                    let mut c = [0u8, 0, 0];
                     if flag.contains(r_flag) {
                         c[0] = 255;
                     } else {
@@ -279,14 +274,13 @@ async fn main() {
             && mouse_world.x < img.width() as f32
             && mouse_world.y < img.height() as f32
         {
+            // mouse is over a canvas
+
             let index =
                 fast_hilbert::xy2h::<u64>(mouse_world.x as u64, mouse_world.y as u64, order) as u64;
-            let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
-            assert_eq!(mouse_world.x as u64, x);
-            assert_eq!(mouse_world.y as u64, y);
 
             // if pfn == None, we are outside of RAM, because canvas is square but memory may not fill the whole canvas
-            let pfn: Option<Pfn> = snap::index_to_pfn(&iomem, page_size, index);
+            let pfn: Option<Pfn> = snap::index_to_pfn(&iomem, index);
 
             draw_text_ex(
                 &format!(
@@ -302,6 +296,7 @@ async fn main() {
             );
 
             if let Some(pfn) = pfn {
+                // mouse is over canvas AND RAM
                 let mut flags: Option<PhysicalPageFlags> = None;
                 for (pfn_start, pfn_end, segment_flags) in &segments {
                     if pfn >= *pfn_start && pfn < *pfn_end {
@@ -313,7 +308,7 @@ async fn main() {
                 }
 
                 let flags_text: String = if let Some(flags) = flags {
-                    flags.iter_names().map(|(a, b)| a).join(" ")
+                    flags.iter_names().map(|(flag_name, _)| flag_name).join(" ")
                 } else {
                     // TODO: should be unreachable somehow
                     "NOT IN RAM?".into()

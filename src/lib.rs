@@ -42,7 +42,7 @@ pub mod process_tree;
 pub mod tmpfs;
 
 /// Convert pfn to index into non-contiguous memory mappings
-pub fn pfn_to_index(iomem: &[PhysicalMemoryMap], page_size: u64, pfn: Pfn) -> Option<u64> {
+pub fn pfn_to_index(iomem: &[PhysicalMemoryMap], pfn: Pfn) -> Option<u64> {
     if pfn.0 == 0 {
         return None;
     }
@@ -62,7 +62,7 @@ pub fn pfn_to_index(iomem: &[PhysicalMemoryMap], page_size: u64, pfn: Pfn) -> Op
 }
 
 /// Convert index to Pfn into non-contiguous memory mappings
-pub fn index_to_pfn(iomem: &[PhysicalMemoryMap], page_size: u64, mut index: u64) -> Option<Pfn> {
+pub fn index_to_pfn(iomem: &[PhysicalMemoryMap], mut index: u64) -> Option<Pfn> {
     let mut previous_maps_size = 0;
     for map in iomem {
         let (pfn_start, pfn_end) = map.get_range().get();
