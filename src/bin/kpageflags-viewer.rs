@@ -26,6 +26,22 @@ fn get_segments(
     segments
 }
 
+fn recompute_rgb_data(
+    rgb_offsets: &mut [i8; 3],
+    rgb_flag_names: &mut [String; 3],
+    rgb_selector: usize,
+    flags_count: usize,
+) {
+    rgb_offsets[rgb_selector] = rgb_offsets[rgb_selector].rem_euclid(flags_count as i8);
+    rgb_flag_names[rgb_selector] = PhysicalPageFlags::all()
+        .iter_names()
+        .nth(rgb_offsets[rgb_selector] as usize)
+        .unwrap()
+        .0
+        .to_string();
+    dbg!(rgb_offsets);
+}
+
 fn window_conf() -> Conf {
     Conf {
         window_title: "KPageFlags-Viewer".to_owned(),
@@ -57,7 +73,7 @@ async fn main() {
     let mut default_img: Image = Image::gen_image_color(
         2u16.pow(order as u32),
         2u16.pow(order as u32),
-        Color::from_rgba(0, 0, 0, 255),
+        Color::from_rgba(79, 79, 79, 255),
     );
 
     for map in iomem.iter() {
@@ -79,9 +95,14 @@ async fn main() {
 
     let mut canvas_offset = Vec2::new(0., 0.);
 
-    let mut rgb_offsets = [0i8; 3];
+    let mut rgb_offsets = [26i8, 12, 10]; // default view
     let mut rgb_selector = 0;
     let mut rgb_flag_names = [String::new(), String::new(), String::new()];
+
+    // first loop
+    for i in 0..3 {
+        recompute_rgb_data(&mut rgb_offsets, &mut rgb_flag_names, i, flags_count);
+    }
 
     loop {
         let t = get_time();
@@ -109,23 +130,23 @@ async fn main() {
 
         if is_key_pressed(KeyCode::Left) {
             rgb_offsets[rgb_selector] -= 1;
-            rgb_offsets[rgb_selector] = rgb_offsets[rgb_selector].rem_euclid(flags_count as i8);
-            rgb_flag_names[rgb_selector] = PhysicalPageFlags::all()
-                .iter_names()
-                .nth(rgb_offsets[rgb_selector] as usize)
-                .unwrap()
-                .0
-                .to_string();
+
+            recompute_rgb_data(
+                &mut rgb_offsets,
+                &mut rgb_flag_names,
+                rgb_selector,
+                flags_count,
+            );
         }
         if is_key_pressed(KeyCode::Right) {
             rgb_offsets[rgb_selector] += 1;
-            rgb_offsets[rgb_selector] = rgb_offsets[rgb_selector].rem_euclid(flags_count as i8);
-            rgb_flag_names[rgb_selector] = PhysicalPageFlags::all()
-                .iter_names()
-                .nth(rgb_offsets[rgb_selector] as usize)
-                .unwrap()
-                .0
-                .to_string();
+
+            recompute_rgb_data(
+                &mut rgb_offsets,
+                &mut rgb_flag_names,
+                rgb_selector,
+                flags_count,
+            );
         }
         if is_key_pressed(KeyCode::Up) {
             rgb_selector -= 1;
