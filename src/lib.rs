@@ -13,7 +13,7 @@ use itertools::Itertools;
 use procfs::{
     page_size,
     process::{MMapPath, Pfn, Process},
-    PhysicalMemoryMap, PhysicalPageFlags,
+    PhysicalMemoryMap, PhysicalPageFlags, WithCurrentSystemInfo,
 };
 use rayon::prelude::ParallelExtend;
 use serde::{Deserialize, Serialize};
@@ -49,11 +49,28 @@ pub fn pfn_to_index(iomem: &[PhysicalMemoryMap], page_size: u64, pfn: Pfn) -> Op
 
     let mut previous_maps_size = 0;
     for map in iomem {
-        let (pfn_start, pfn_end) = (map.address.0 / page_size, map.address.1 / page_size);
-        if pfn.0 <= pfn_end {
-            return Some(previous_maps_size + pfn.0 - pfn_start);
+        let (pfn_start, pfn_end) = map.get_range().get();
+        if pfn < pfn_start {
+            return None;
         }
-        previous_maps_size += pfn_end - pfn_start;
+        if pfn <= pfn_end {
+            return Some(previous_maps_size + pfn.0 - pfn_start.0);
+        }
+        previous_maps_size += pfn_end.0 - pfn_start.0;
+    }
+    None
+}
+
+/// Convert index to Pfn into non-contiguous memory mappings
+pub fn index_to_pfn(iomem: &[PhysicalMemoryMap], page_size: u64, mut index: u64) -> Option<Pfn> {
+    let mut previous_maps_size = 0;
+    for map in iomem {
+        let (pfn_start, pfn_end) = map.get_range().get();
+        if index < pfn_end.0 {
+            return Some(Pfn(index + pfn_start.0));
+        }
+        previous_maps_size += pfn_end.0 - pfn_start.0;
+        index -= previous_maps_size;
     }
     None
 }

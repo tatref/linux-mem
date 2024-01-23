@@ -2,6 +2,7 @@
 // Uses /proc/iomem and /proc/kpageflags
 //
 
+use itertools::Itertools;
 //use image::{ImageBuffer, Rgb, RgbImage};
 use macroquad::prelude::*;
 use procfs::process::Pfn;
@@ -39,7 +40,6 @@ fn recompute_rgb_data(
         .unwrap()
         .0
         .to_string();
-    dbg!(rgb_offsets);
 }
 
 fn window_conf() -> Conf {
@@ -89,15 +89,20 @@ async fn main() {
     let mut last_update = 0.;
     let target_update_interval = 1.;
     let mut update_elapsed = 0.;
+    let mut autorefresh = true;
 
     let mut img = default_img.clone();
     let mut zoom = 1.;
 
     let mut canvas_offset = Vec2::new(0., 0.);
+    let canvas_size = Vec2::new(600., 600.);
 
     let mut rgb_offsets = [26i8, 12, 10]; // default view
     let mut rgb_selector = 0;
     let mut rgb_flag_names = [String::new(), String::new(), String::new()];
+
+    let mut mouse_world = Vec2::ZERO;
+    let mut segments = get_segments(&iomem, &mut kpageflags);
 
     // first loop
     for i in 0..3 {
@@ -111,7 +116,8 @@ async fn main() {
         let (_mouse_wheel_x, mouse_wheel_y) = mouse_wheel();
 
         let mouse_screen = Vec2::new(mouse_x, mouse_y);
-        let mouse_world = (mouse_screen - canvas_offset) / zoom;
+        mouse_world = (mouse_screen - canvas_offset) / zoom / canvas_size
+            * Vec2::new(img.width() as f32, img.height() as f32);
 
         // TODO: zoom from mouse cursor
         let zoom_factor = 1.2;
@@ -126,8 +132,11 @@ async fn main() {
             zoom /= zoom_factor;
         }
 
-        // TODO: move canvas with mouse
+        if is_key_pressed(KeyCode::Space) {
+            autorefresh ^= true;
+        }
 
+        // TODO: move canvas with mouse
         if is_key_pressed(KeyCode::Left) {
             rgb_offsets[rgb_selector] -= 1;
 
@@ -160,12 +169,12 @@ async fn main() {
         clear_background(DARKGRAY);
 
         // TODO: fix timestep
-        if t > last_update + target_update_interval {
+        if t > last_update + target_update_interval && autorefresh {
             let update_chrono = get_time();
             last_update = update_chrono;
 
             let get_segments_chrono = get_time();
-            let segments = get_segments(&iomem, &mut kpageflags);
+            segments = get_segments(&iomem, &mut kpageflags);
             let get_segments_elapsed = get_time() - get_segments_chrono;
             //dbg!(get_segments_elapsed);
 
@@ -223,7 +232,6 @@ async fn main() {
             //dbg!(update_elapsed);
         }
 
-        let canvas_size = Vec2::new(600., 600.);
         let texture = Texture2D::from_image(&img);
         if zoom > 1. {
             texture.set_filter(FilterMode::Nearest);
@@ -247,7 +255,11 @@ async fn main() {
         );
 
         draw_text_ex(
-            &format!("Update time {:.1}ms", update_elapsed * 1000.),
+            &format!(
+                "Autorefresh: {}, Update time {:.1}ms",
+                autorefresh,
+                update_elapsed * 1000.
+            ),
             right_panel_offset + 20.,
             40.0,
             TextParams::default(),
@@ -261,22 +273,59 @@ async fn main() {
         );
 
         // draw PFN info
-        if mouse_world.x <= right_panel_offset && mouse_world.y < canvas_size.y {
+        // TODO add panel check for mouse
+        if mouse_world.x >= Vec2::ZERO.x
+            && mouse_world.y >= Vec2::ZERO.y
+            && mouse_world.x < img.width() as f32
+            && mouse_world.y < img.height() as f32
+        {
             let index =
-                fast_hilbert::xy2h::<u64>(mouse_world.x as u64, mouse_world.y as u64, order);
+                fast_hilbert::xy2h::<u64>(mouse_world.x as u64, mouse_world.y as u64, order) as u64;
             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
             assert_eq!(mouse_world.x as u64, x);
             assert_eq!(mouse_world.y as u64, y);
 
-            // TODO: index_to_pfn
-            //let pfn: Pfn = snap::index_to_pfn(&iomem, page_size, index).unwrap();
+            // if pfn == None, we are outside of RAM, because canvas is square but memory may not fill the whole canvas
+            let pfn: Option<Pfn> = snap::index_to_pfn(&iomem, page_size, index);
 
             draw_text_ex(
-                &format!("index: {:?}", index),
+                &format!(
+                    "index: {:?}, mouse: {:?}, zoom: {:.2}, pfn: {:?}",
+                    index,
+                    (mouse_world.x as u64, mouse_world.y as u64),
+                    zoom,
+                    pfn
+                ),
                 right_panel_offset + 20.,
                 80.0,
                 TextParams::default(),
             );
+
+            if let Some(pfn) = pfn {
+                let mut flags: Option<PhysicalPageFlags> = None;
+                for (pfn_start, pfn_end, segment_flags) in &segments {
+                    if pfn >= *pfn_start && pfn < *pfn_end {
+                        flags = segment_flags
+                            .iter()
+                            .nth((pfn.0 - pfn_start.0) as usize)
+                            .copied();
+                    }
+                }
+
+                let flags_text: String = if let Some(flags) = flags {
+                    flags.iter_names().map(|(a, b)| a).join(" ")
+                } else {
+                    // TODO: should be unreachable somehow
+                    "NOT IN RAM?".into()
+                };
+
+                draw_text_ex(
+                    &format!("flags: {}", flags_text),
+                    right_panel_offset + 20.,
+                    160.0,
+                    TextParams::default(),
+                );
+            }
         }
 
         for (i, color) in (0..3).zip(["RED", "GREEN", "BLUE"]) {
