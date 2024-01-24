@@ -2,12 +2,60 @@
 // Uses /proc/iomem and /proc/kpageflags
 //
 
+use std::collections::HashSet;
+
 use itertools::Itertools;
-//use image::{ImageBuffer, Rgb, RgbImage};
 use macroquad::prelude::*;
-use procfs::process::Pfn;
+use procfs::process::{MMapPath, Pfn, Process};
 use procfs::{prelude::*, KPageFlags};
 use procfs::{PhysicalMemoryMap, PhysicalPageFlags};
+
+fn get_process_pfns(process: &Process) -> Result<HashSet<Pfn>, Box<dyn std::error::Error>> {
+    let mut pfn_set = HashSet::new();
+
+    let page_size = procfs::page_size();
+
+    let mut pagemap = process.pagemap()?;
+    let memmap = process.maps()?;
+
+    for memory_map in memmap {
+        let mem_start = memory_map.address.0;
+        let mem_end = memory_map.address.1;
+
+        let page_start = (mem_start / page_size) as usize;
+        let page_end = (mem_end / page_size) as usize;
+
+        // can't scan Vsyscall, so skip it
+        if memory_map.pathname == MMapPath::Vsyscall {
+            continue;
+        }
+
+        for page_info in pagemap.get_range_info(page_start..page_end)? {
+            match page_info {
+                procfs::process::PageInfo::MemoryPage(memory_page) => {
+                    let pfn = memory_page.get_page_frame_number();
+                    pfn_set.insert(pfn);
+                }
+                procfs::process::PageInfo::SwapPage(_) => (),
+            }
+        }
+    }
+
+    Ok(pfn_set)
+}
+
+fn get_all_processes_pfns() -> Vec<(Process, HashSet<Pfn>)> {
+    let processes: Vec<(Process, HashSet<Pfn>)> = procfs::process::all_processes()
+        .unwrap()
+        .filter_map(|res| res.ok())
+        .filter_map(|p| match get_process_pfns(&p) {
+            Ok(pfns) => Some((p, pfns)),
+            Err(_) => None,
+        })
+        .collect();
+
+    processes
+}
 
 fn get_segments(
     iomem: &[PhysicalMemoryMap],
@@ -103,6 +151,7 @@ async fn main() {
 
     let mut mouse_world: Vec2;
     let mut segments = get_segments(&iomem, &mut kpageflags);
+    let mut all_processes: Vec<(Process, HashSet<Pfn>)> = get_all_processes_pfns();
 
     // first loop
     for i in 0..3 {
@@ -174,7 +223,7 @@ async fn main() {
             last_update = update_chrono;
 
             let get_segments_chrono = get_time();
-            segments = get_segments(&iomem, &mut kpageflags);
+            segments = get_segments(&iomem, &mut kpageflags); // expensive
             let get_segments_elapsed = get_time() - get_segments_chrono;
             //dbg!(get_segments_elapsed);
 
@@ -315,6 +364,31 @@ async fn main() {
                     &format!("flags: {}", flags_text),
                     right_panel_offset + 20.,
                     160.0,
+                    TextParams::default(),
+                );
+
+                let processes: Vec<&Process> = all_processes
+                    .iter()
+                    .filter_map(|(process, pfns)| {
+                        if pfns.contains(&pfn) {
+                            Some(process)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let processes_text = processes
+                    .iter()
+                    .flat_map(|p| match p.exe() {
+                        Ok(exe) => Some(format!("{} ({:?})", p.pid, exe)),
+                        Err(_) => None,
+                    })
+                    .join(", ");
+
+                draw_text_ex(
+                    &format!("procs: {}", processes_text),
+                    right_panel_offset + 20.,
+                    180.0,
                     TextParams::default(),
                 );
             }
