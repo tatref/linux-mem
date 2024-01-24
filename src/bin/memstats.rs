@@ -157,7 +157,7 @@ Examples:
 
     if let Commands::GetDbInfo { pid } = cli.commands {
         // oracle shouldn't run as root
-        assert_ne!(users::get_effective_uid(), 0);
+        assert_ne!(uzers::get_effective_uid(), 0);
 
         // subprogram to connect to instance and print sga size
         // We must have the correct context (user, env vars) to connect to database
@@ -222,7 +222,7 @@ Examples:
     debug!("");
 
     // Main program starts here
-    if users::get_effective_uid() != 0 {
+    if uzers::get_effective_uid() != 0 {
         error!("Run as root");
         std::process::exit(1);
     }

@@ -732,7 +732,7 @@ pub fn get_smon_info(
 ) -> Result<SmonInfo, Box<dyn std::error::Error>> {
     let myself = std::env::current_exe()?;
 
-    let user = users::get_user_by_uid(uid).expect("Can't find user for uid {uid}");
+    let user = uzers::get_user_by_uid(uid).expect("Can't find user for uid {uid}");
     let gid = user.primary_group_id();
 
     let mut lib = home.to_os_string();

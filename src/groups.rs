@@ -322,13 +322,12 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterUid {
         let uids: HashSet<u32> = processes.iter().map(|p| p.uid).collect();
 
         for uid in uids {
-            let username = users::get_user_by_uid(uid);
+            let username = uzers::get_user_by_uid(uid);
             let username = match username {
                 Some(username) => username.name().to_string_lossy().to_string(),
                 None => format!("{uid}"),
             };
-            let processes_info: Vec<ProcessInfo> =
-                processes.extract_if(|p| p.uid == uid).collect();
+            let processes_info: Vec<ProcessInfo> = processes.extract_if(|p| p.uid == uid).collect();
             let group_info = get_processes_group_info(processes_info, &username, shms_metadata);
             self.groups.insert(uid, group_info);
         }
