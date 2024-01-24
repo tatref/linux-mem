@@ -3,6 +3,10 @@
 //
 
 use std::collections::HashSet;
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{self, SyncSender};
+use std::thread::{self};
+use std::time::Duration;
 
 use itertools::Itertools;
 use macroquad::prelude::*;
@@ -90,6 +94,49 @@ fn recompute_rgb_data(
         .to_string();
 }
 
+fn gen_image(
+    default_img: Image,
+    memory_segments: &[(Pfn, Pfn, Vec<PhysicalPageFlags>)],
+    iomem: &[PhysicalMemoryMap],
+    order: u8,
+    r_flag: PhysicalPageFlags,
+    g_flag: PhysicalPageFlags,
+    b_flag: PhysicalPageFlags,
+) -> Image {
+    let mut img = default_img.clone();
+
+    for (start_pfn, end_pfn, flags) in memory_segments.iter() {
+        assert_eq!(end_pfn.0 - start_pfn.0, flags.len() as u64);
+
+        for (pfn, &flag) in (start_pfn.0..end_pfn.0).zip(flags.iter()) {
+            let index = snap::pfn_to_index(&iomem, Pfn(pfn)).unwrap();
+            let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
+
+            let mut c = [0u8, 0, 0];
+            if flag.contains(r_flag) {
+                c[0] = 255;
+            } else {
+                c[0] = 0;
+            }
+            if flag.contains(g_flag) {
+                c[1] = 255;
+            } else {
+                c[1] = 0;
+            }
+            if flag.contains(b_flag) {
+                c[2] = 255;
+            } else {
+                c[2] = 0;
+            }
+
+            let color = Color::from_rgba(c[0], c[1], c[2], 255);
+            img.set_pixel(x as u32, y as u32, color);
+        }
+    }
+
+    img
+}
+
 fn window_conf() -> Conf {
     Conf {
         window_title: "KPageFlags-Viewer".to_owned(),
@@ -134,7 +181,6 @@ async fn main() {
         }
     }
 
-    let mut last_update = 0.;
     let target_update_interval = 2.;
     let mut update_elapsed = 0.;
     let mut autorefresh = true;
@@ -158,9 +204,65 @@ async fn main() {
         recompute_rgb_data(&mut rgb_offsets, &mut rgb_flag_names, i, flags_count);
     }
 
-    loop {
-        let t = get_time();
+    struct ThreadData {
+        memory_segments: Vec<(Pfn, Pfn, Vec<PhysicalPageFlags>)>,
+        processes_pfns: Vec<(Process, HashSet<Pfn>)>,
+    }
+    let (tx, rx): (SyncSender<ThreadData>, Receiver<ThreadData>) = mpsc::sync_channel(1);
 
+    let worker_thread = thread::spawn(move || {
+        let iomem: Vec<PhysicalMemoryMap> = procfs::iomem()
+            .unwrap()
+            .iter()
+            .filter_map(|(ident, map)| if *ident == 0 { Some(map.clone()) } else { None })
+            .filter(|map| map.name == "System RAM")
+            .collect();
+        let mut kpageflags = procfs::KPageFlags::new().unwrap();
+
+        loop {
+            let memory_segments = get_segments(&iomem, &mut kpageflags);
+            let processes_pfns = get_all_processes_pfns();
+
+            tx.send(ThreadData {
+                memory_segments,
+                processes_pfns,
+            })
+            .expect("Can't send thread data");
+
+            thread::sleep(Duration::from_secs_f64(target_update_interval));
+        }
+    });
+
+    let (tx_image, rx_image): (SyncSender<Image>, Receiver<Image>) = mpsc::sync_channel(1);
+    type ImageInput = (
+        Image,
+        Vec<(Pfn, Pfn, Vec<PhysicalPageFlags>)>,
+        Vec<PhysicalMemoryMap>,
+        u8,
+        PhysicalPageFlags,
+        PhysicalPageFlags,
+        PhysicalPageFlags,
+    );
+    let (tx_image_input, rx_image_input): (SyncSender<ImageInput>, Receiver<ImageInput>) =
+        mpsc::sync_channel(1);
+    let update_image_thread = thread::spawn(move || loop {
+        if let Ok((default_img, memory_segments, iomem, order, r_flag, g_flag, b_flag)) =
+            rx_image_input.try_recv()
+        {
+            let img = gen_image(
+                default_img,
+                &memory_segments,
+                &iomem,
+                order,
+                r_flag,
+                g_flag,
+                b_flag,
+            );
+            tx_image.send(img).expect("Can't send image");
+        }
+    });
+
+    loop {
         let (mouse_x, mouse_y) = mouse_position();
         let (_mouse_wheel_x, mouse_wheel_y) = mouse_wheel();
 
@@ -217,67 +319,45 @@ async fn main() {
 
         clear_background(DARKGRAY);
 
-        // TODO: fix timestep
-        if t > last_update + target_update_interval && autorefresh {
+        if let (Ok(data), true) = (rx.try_recv(), autorefresh) {
             let update_chrono = get_time();
-            last_update = update_chrono;
 
-            let get_segments_chrono = get_time();
-            segments = get_segments(&iomem, &mut kpageflags); // expensive!
-            let get_segments_elapsed = get_time() - get_segments_chrono;
-            //dbg!(get_segments_elapsed);
+            (segments, all_processes) = (data.memory_segments, data.processes_pfns);
 
-            all_processes = get_all_processes_pfns(); // expensive!
+            let r_flag = PhysicalPageFlags::all()
+                .iter()
+                .nth(rgb_offsets[0] as usize)
+                .unwrap();
+            let g_flag = PhysicalPageFlags::all()
+                .iter()
+                .nth(rgb_offsets[1] as usize)
+                .unwrap();
+            let b_flag = PhysicalPageFlags::all()
+                .iter()
+                .nth(rgb_offsets[2] as usize)
+                .unwrap();
 
-            let update_image_chrono = get_time();
-            for (start_pfn, end_pfn, flags) in segments.iter() {
-                assert_eq!(end_pfn.0 - start_pfn.0, flags.len() as u64);
-
-                for (pfn, &flag) in (start_pfn.0..end_pfn.0).zip(flags.iter()) {
-                    let index = snap::pfn_to_index(&iomem, Pfn(pfn)).unwrap();
-                    let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
-
-                    let r_flag = PhysicalPageFlags::all()
-                        .iter()
-                        .nth(rgb_offsets[0] as usize)
-                        .unwrap();
-                    let g_flag = PhysicalPageFlags::all()
-                        .iter()
-                        .nth(rgb_offsets[1] as usize)
-                        .unwrap();
-                    let b_flag = PhysicalPageFlags::all()
-                        .iter()
-                        .nth(rgb_offsets[2] as usize)
-                        .unwrap();
-
-                    let mut c = [0u8, 0, 0];
-                    if flag.contains(r_flag) {
-                        c[0] = 255;
-                    } else {
-                        c[0] = 0;
-                    }
-                    if flag.contains(g_flag) {
-                        c[1] = 255;
-                    } else {
-                        c[1] = 0;
-                    }
-                    if flag.contains(b_flag) {
-                        c[2] = 255;
-                    } else {
-                        c[2] = 0;
-                    }
-
-                    let color = Color::from_rgba(c[0], c[1], c[2], 255);
-                    img.set_pixel(x as u32, y as u32, color);
-                }
-            }
-            let update_image_elapsed = get_time() - update_image_chrono;
-            //dbg!(update_image_elapsed);
+            // send data to generate image in different thread
+            tx_image_input
+                .try_send((
+                    default_img.clone(),
+                    segments.clone(),
+                    iomem.clone(),
+                    order,
+                    r_flag,
+                    g_flag,
+                    b_flag,
+                ))
+                .expect("Can't send image");
 
             update_elapsed = get_time() - update_chrono;
             //dbg!(update_elapsed);
         }
 
+        // try to receive image from other thread
+        if let Ok(new_img) = rx_image.try_recv() {
+            img = new_img;
+        }
         let texture = Texture2D::from_image(&img);
         if zoom > 1. {
             texture.set_filter(FilterMode::Nearest);
