@@ -31,7 +31,7 @@ tar -cJf "$ARCHIVE" \
   --transform 's:target/x86_64-unknown-linux-gnu/release/::' \
   --transform "s:^:linux-mem-$SHORT_VERSION/:" \
   README.md VERSION \
-  target/x86_64-unknown-linux-gnu/release/{memstats,procinfo,shmem} \
+  target/x86_64-unknown-linux-gnu/release/{memstats,procinfo,shmem,kpageflags-viewer} \
   proc_snap/snap.py
 
 echo Done
