@@ -59,7 +59,7 @@ fn find_smons() -> Vec<(i32, u32, OsString, OsString)> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("ORACLE_SID").is_err() {
-        if users::get_effective_uid() != 0 {
+        if uzers::get_effective_uid() != 0 {
             panic!("Run as root");
         }
         // first run

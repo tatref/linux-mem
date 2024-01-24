@@ -135,7 +135,7 @@ async fn main() {
     }
 
     let mut last_update = 0.;
-    let target_update_interval = 1.;
+    let target_update_interval = 2.;
     let mut update_elapsed = 0.;
     let mut autorefresh = true;
 
@@ -223,9 +223,11 @@ async fn main() {
             last_update = update_chrono;
 
             let get_segments_chrono = get_time();
-            segments = get_segments(&iomem, &mut kpageflags); // expensive
+            segments = get_segments(&iomem, &mut kpageflags); // expensive!
             let get_segments_elapsed = get_time() - get_segments_chrono;
             //dbg!(get_segments_elapsed);
+
+            all_processes = get_all_processes_pfns(); // expensive!
 
             let update_image_chrono = get_time();
             for (start_pfn, end_pfn, flags) in segments.iter() {
