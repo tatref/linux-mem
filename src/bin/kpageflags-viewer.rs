@@ -10,7 +10,7 @@ use procfs::{prelude::*, KPageFlags};
 use procfs::{PhysicalMemoryMap, PhysicalPageFlags};
 
 fn get_segments(
-    iomem: &Vec<PhysicalMemoryMap>,
+    iomem: &[PhysicalMemoryMap],
     kpageflags: &mut KPageFlags,
 ) -> Vec<(Pfn, Pfn, Vec<PhysicalPageFlags>)> {
     let segments: Vec<(Pfn, Pfn, Vec<PhysicalPageFlags>)> = iomem
@@ -300,10 +300,7 @@ async fn main() {
                 let mut flags: Option<PhysicalPageFlags> = None;
                 for (pfn_start, pfn_end, segment_flags) in &segments {
                     if pfn >= *pfn_start && pfn < *pfn_end {
-                        flags = segment_flags
-                            .iter()
-                            .nth((pfn.0 - pfn_start.0) as usize)
-                            .copied();
+                        flags = segment_flags.get((pfn.0 - pfn_start.0) as usize).copied();
                     }
                 }
 

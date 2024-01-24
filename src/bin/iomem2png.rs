@@ -68,11 +68,11 @@ fn main() {
     let scale = Scale::uniform(30.);
 
     for (segment_index, segment) in iomem.iter().enumerate() {
-        let size = snap::get_size(&segment);
+        let size = snap::get_size(segment);
         let string_size = humansize::format_size(size, humansize::BINARY);
 
         let x = draw_square as i32 + scale.x as i32 * 3;
-        let y = scale.x as i32 * 3 + scale.x as i32 * segment_index as i32 * 2 as i32;
+        let y = scale.x as i32 * 3 + scale.x as i32 * segment_index as i32 * 2;
 
         let grad_color = grad
             .at(segment_index as f64 / segments_count as f64)

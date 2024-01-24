@@ -153,12 +153,9 @@ pub fn compute_compound_pages(
                 }
             }
 
-            for (_i, &(_pfn, _count, flags)) in iter
-                .take_while_ref(|(_pfn, _count, flags)| {
-                    flags.contains(PhysicalPageFlags::COMPOUND_TAIL)
-                })
-                .enumerate()
-            {
+            for &(_pfn, _count, flags) in iter.take_while_ref(|(_pfn, _count, flags)| {
+                flags.contains(PhysicalPageFlags::COMPOUND_TAIL)
+            }) {
                 merged_compound_pages += 1;
                 let mut tail_flags = flags;
                 tail_flags.insert(head_flags & !PhysicalPageFlags::COMPOUND_HEAD);
@@ -562,7 +559,7 @@ pub fn get_process_info(
 ) -> Result<ProcessInfo, Box<dyn std::error::Error>> {
     if process.cmdline()?.is_empty() {
         // already handled in main
-        return Err(String::from("No info for kernel process"))?;
+        Err(String::from("No info for kernel process"))?
     }
 
     let page_size = procfs::page_size();
