@@ -161,7 +161,7 @@ async fn main() {
     let mut kpageflags = procfs::KPageFlags::new().unwrap();
     let flags_count = PhysicalPageFlags::all().iter().count();
 
-    let pfns = snap::get_pfn_count(&iomem, page_size);
+    let pfns = snap::get_pfn_count(&iomem);
     let order = (pfns as f64).log2() / 2.;
     let order = order.ceil() as u8;
 

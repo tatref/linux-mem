@@ -92,10 +92,13 @@ pub fn pfn_is_in_ram(iomem: &[PhysicalMemoryMap], page_size: u64, pfn: Pfn) -> O
 }
 
 /// Count total number of 4 kiB frames in memory segments
-pub fn get_pfn_count(iomem: &[PhysicalMemoryMap], page_size: u64) -> u64 {
+pub fn get_pfn_count(iomem: &[PhysicalMemoryMap]) -> u64 {
     iomem
         .iter()
-        .map(|map| map.address.1 / page_size - map.address.0 / page_size)
+        .map(|map| {
+            let (start, end) = map.get_range().get();
+            end.0 - start.0
+        })
         .sum()
 }
 

@@ -72,7 +72,7 @@ fn main() {
 
     // draw
 
-    let pfns = snap::get_pfn_count(&iomem, page_size);
+    let pfns = snap::get_pfn_count(&iomem);
     dbg!(pfns);
     let order = (pfns as f64).log2() / 2.;
     dbg!(order);
