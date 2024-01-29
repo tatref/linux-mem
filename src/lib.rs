@@ -49,18 +49,19 @@ pub mod aaa {
         path::PathBuf,
     };
 
-    use procfs::{process::Pfn, PhysicalPageFlags};
+    use procfs::{process::Pfn, PhysicalMemoryMap, PhysicalPageFlags};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
     pub enum Message {
+        FirstUpdate(UpdateMessage),
         Update(UpdateMessage),
         Finish,
         //ServerParams(ServerParamsMessage),
     }
 
     impl Message {
-        pub fn write(&self, socket: &mut TcpStream) -> Result<usize, Box<dyn std::error::Error>> {
+        pub fn send(&self, socket: &mut TcpStream) -> Result<usize, Box<dyn std::error::Error>> {
             let buf = rmp_serde::to_vec(&self)?;
             let size = (buf.len() as u64).to_le_bytes();
             socket.write_all(&size)?;
@@ -69,7 +70,7 @@ pub mod aaa {
             Ok(buf.len())
         }
 
-        pub fn read(socket: &mut TcpStream) -> Result<Self, Box<dyn std::error::Error>> {
+        pub fn recv(socket: &mut TcpStream) -> Result<Self, Box<dyn std::error::Error>> {
             let mut size = [0u8; 8];
             socket.read_exact(&mut size)?;
             let size = u64::from_le_bytes(size);
@@ -103,6 +104,7 @@ pub mod aaa {
     pub struct UpdateMessage {
         pub processes_info: Vec<ProcessInfo>,
         pub memory_segments: Vec<(Pfn, Pfn, Vec<PhysicalPageFlags>)>,
+        pub iomem: Vec<PhysicalMemoryMap>,
     }
 
     #[derive(Serialize, Deserialize)]

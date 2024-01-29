@@ -109,8 +109,15 @@ fn main() {
 
     let mut kpageflags = procfs::KPageFlags::new().unwrap();
 
-    let mut memory_segments;
-    let mut processes_info;
+    let mut processes_info = get_all_processes_info();
+    let mut memory_segments = get_segments(&iomem, &mut kpageflags);
+
+    let message = Message::FirstUpdate(UpdateMessage {
+        processes_info,
+        memory_segments,
+        iomem: iomem.clone(),
+    });
+    message.send(&mut socket).unwrap();
 
     loop {
         let chrono = Instant::now();
@@ -122,9 +129,10 @@ fn main() {
         let message = Message::Update(UpdateMessage {
             processes_info,
             memory_segments,
+            iomem: iomem.clone(),
         });
 
-        let message_size = message.write(&mut socket).unwrap();
+        let message_size = message.send(&mut socket).unwrap();
         eprintln!("message_size: {} MiB", message_size / 1024 / 1024);
 
         let update_duration = chrono.elapsed();
