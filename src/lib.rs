@@ -54,7 +54,7 @@ pub mod aaa {
 
     #[derive(Serialize, Deserialize)]
     pub enum Message {
-        FirstUpdate(UpdateMessage),
+        FirstUpdate(FirstUpdateMessage),
         Update(UpdateMessage),
         Finish,
         //ServerParams(ServerParamsMessage),
@@ -63,6 +63,15 @@ pub mod aaa {
     impl Message {
         pub fn send(&self, socket: &mut TcpStream) -> Result<usize, Box<dyn std::error::Error>> {
             let buf = rmp_serde::to_vec(&self)?;
+            dbg!(buf.len());
+
+            let buf = bincode::serialize(&self)?;
+            dbg!(buf.len());
+
+            let mut buf = Vec::new();
+            ciborium::into_writer(&self, &mut buf).unwrap();
+            dbg!(buf.len());
+
             let size = (buf.len() as u64).to_le_bytes();
             socket.write_all(&size)?;
             socket.write_all(&buf)?;
@@ -98,6 +107,14 @@ pub mod aaa {
 
             Ok(message)
         }
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub struct FirstUpdateMessage {
+        pub page_size: u64,
+        pub processes_info: Vec<ProcessInfo>,
+        pub memory_segments: Vec<(Pfn, Pfn, Vec<PhysicalPageFlags>)>,
+        pub iomem: Vec<PhysicalMemoryMap>,
     }
 
     #[derive(Serialize, Deserialize)]

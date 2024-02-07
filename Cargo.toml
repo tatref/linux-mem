@@ -31,10 +31,10 @@ tar = "0.4.37"
 
 libc = "0.2.144"
 
-procfs = { git = "https://github.com/tatref/procfs", branch = "serde-pfn", features = [
+# waiting for procfs v0.17
+procfs = { git = "https://github.com/eminence/procfs", branch = "master", features = [
 	"serde1",
 ] }
-#procfs = "0.16"
 
 #egui = "0.20.0"
 image = { version = "0.24.5", default_features = false, features = ["png"] }
@@ -70,4 +70,6 @@ colored = "2.0.0"
 macroquad = "0.4.4"
 rmp-serde = "1.1.2"
 rmp = "0.8.12"
+bincode = "1.3.3"
+ciborium = "0.2.2"
 #once_cell = "1.17.1"

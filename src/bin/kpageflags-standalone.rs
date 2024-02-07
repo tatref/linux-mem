@@ -149,8 +149,6 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let page_size = procfs::page_size();
-
     let iomem: Vec<PhysicalMemoryMap> = procfs::iomem()
         .unwrap()
         .iter()
@@ -181,7 +179,7 @@ async fn main() {
         }
     }
 
-    let target_update_interval = 2.;
+    let target_update_interval = 1.;
     let mut update_elapsed = 0.;
     let mut autorefresh = true;
 
@@ -210,7 +208,7 @@ async fn main() {
     }
     let (tx, rx): (SyncSender<ThreadData>, Receiver<ThreadData>) = mpsc::sync_channel(1);
 
-    let worker_thread = thread::spawn(move || {
+    let _worker_thread = thread::spawn(move || {
         let iomem: Vec<PhysicalMemoryMap> = procfs::iomem()
             .unwrap()
             .iter()
@@ -220,8 +218,10 @@ async fn main() {
         let mut kpageflags = procfs::KPageFlags::new().unwrap();
 
         loop {
+            let chrono = std::time::Instant::now();
             let memory_segments = get_segments(&iomem, &mut kpageflags);
             let processes_pfns = get_all_processes_pfns();
+            let elapsed = chrono.elapsed().as_secs_f64();
 
             tx.send(ThreadData {
                 memory_segments,
@@ -229,7 +229,8 @@ async fn main() {
             })
             .expect("Can't send thread data");
 
-            thread::sleep(Duration::from_secs_f64(target_update_interval));
+            let sleep = (target_update_interval - elapsed).max(0.);
+            thread::sleep(Duration::from_secs_f64(sleep));
         }
     });
 
@@ -245,7 +246,7 @@ async fn main() {
     );
     let (tx_image_input, rx_image_input): (SyncSender<ImageInput>, Receiver<ImageInput>) =
         mpsc::sync_channel(1);
-    let update_image_thread = thread::spawn(move || loop {
+    let _update_image_thread = thread::spawn(move || loop {
         if let Ok((default_img, memory_segments, iomem, order, r_flag, g_flag, b_flag)) =
             rx_image_input.try_recv()
         {
@@ -380,6 +381,8 @@ async fn main() {
             DARKGRAY,
         );
 
+        let mut text_y = 40.;
+
         draw_text_ex(
             &format!(
                 "Autorefresh: {}, Update time {:.1}ms",
@@ -387,16 +390,18 @@ async fn main() {
                 update_elapsed * 1000.
             ),
             right_panel_offset + 20.,
-            40.0,
+            text_y,
             TextParams::default(),
         );
+        text_y += 20.;
 
         draw_text_ex(
             &format!("Mouse_world: {:?}", mouse_world),
             right_panel_offset + 20.,
-            60.0,
+            text_y,
             TextParams::default(),
         );
+        text_y += 20.;
 
         // draw PFN info
         // TODO add panel check for mouse
@@ -410,21 +415,33 @@ async fn main() {
             let index =
                 fast_hilbert::xy2h::<u64>(mouse_world.x as u64, mouse_world.y as u64, order) as u64;
 
-            // if pfn == None, we are outside of RAM, because canvas is square but memory may not fill the whole canvas
-            let pfn: Option<Pfn> = snap::index_to_pfn(&iomem, index);
-
             draw_text_ex(
                 &format!(
-                    "index: {:?}, mouse: {:?}, zoom: {:.2}, pfn: {:?}",
+                    "index: {:?}, mouse: {:?}, zoom: {:.2}",
                     index,
                     (mouse_world.x as u64, mouse_world.y as u64),
                     zoom,
-                    pfn
                 ),
                 right_panel_offset + 20.,
-                80.0,
+                text_y,
                 TextParams::default(),
             );
+            text_y += 20.;
+
+            // if pfn == None, we are outside of RAM, because canvas is square but memory may not fill the whole canvas
+            let pfn: Option<Pfn> = snap::index_to_pfn(&iomem, index);
+
+            let page_size = procfs::page_size();
+            let is_in_ram = pfn.map(|pfn| snap::pfn_is_in_ram(&iomem, page_size, pfn).is_some());
+
+            text_y += 20.;
+            draw_text_ex(
+                &format!("pfn: {:?}, is_in_ram: {:?}", pfn, is_in_ram),
+                right_panel_offset + 20.,
+                text_y,
+                TextParams::default(),
+            );
+            text_y += 20.;
 
             if let Some(pfn) = pfn {
                 // mouse is over canvas AND RAM
@@ -445,9 +462,10 @@ async fn main() {
                 draw_text_ex(
                     &format!("flags: {}", flags_text),
                     right_panel_offset + 20.,
-                    160.0,
+                    text_y,
                     TextParams::default(),
                 );
+                text_y += 20.;
 
                 let processes: Vec<&Process> = all_processes
                     .iter()
@@ -470,9 +488,10 @@ async fn main() {
                 draw_text_ex(
                     &format!("procs: {}", processes_text),
                     right_panel_offset + 20.,
-                    180.0,
+                    text_y,
                     TextParams::default(),
                 );
+                text_y += 20.;
             }
         }
 
@@ -485,9 +504,10 @@ async fn main() {
             draw_text_ex(
                 &format!("{}: {}", color, rgb_flag_names[i]),
                 right_panel_offset + 20.,
-                100.0 + i as f32 * 20.,
+                text_y,
                 params,
             );
+            text_y += 20.;
         }
 
         next_frame().await

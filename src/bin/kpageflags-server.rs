@@ -111,8 +111,10 @@ fn main() {
 
     let mut processes_info = get_all_processes_info();
     let mut memory_segments = get_segments(&iomem, &mut kpageflags);
+    let page_size = procfs::page_size();
 
-    let message = Message::FirstUpdate(UpdateMessage {
+    let message = Message::FirstUpdate(FirstUpdateMessage {
+        page_size,
         processes_info,
         memory_segments,
         iomem: iomem.clone(),
