@@ -104,12 +104,17 @@ fn gen_image(
     b_flag: PhysicalPageFlags,
 ) -> Image {
     let mut img = default_img.clone();
+    let page_size = procfs::page_size();
 
     for (start_pfn, end_pfn, flags) in memory_segments.iter() {
         assert_eq!(end_pfn.0 - start_pfn.0, flags.len() as u64);
 
         for (pfn, &flag) in (start_pfn.0..end_pfn.0).zip(flags.iter()) {
-            let index = snap::pfn_to_index(&iomem, Pfn(pfn)).unwrap();
+            let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
+
+            let pfn2 = snap::index_to_pfn(&iomem, page_size, index).unwrap();
+            assert_eq!(Pfn(pfn), pfn2);
+
             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
 
             let mut c = [0u8, 0, 0];
@@ -155,6 +160,7 @@ async fn main() {
         .filter_map(|(ident, map)| if *ident == 0 { Some(map.clone()) } else { None })
         .filter(|map| map.name == "System RAM")
         .collect();
+    let page_size = procfs::page_size();
 
     let mut kpageflags = procfs::KPageFlags::new().unwrap();
     let flags_count = PhysicalPageFlags::all().iter().count();
@@ -172,7 +178,7 @@ async fn main() {
     for map in iomem.iter() {
         let (start, end) = map.get_range().get();
         for pfn in start.0..end.0 {
-            let index = snap::pfn_to_index(&iomem, Pfn(pfn)).unwrap();
+            let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
 
             default_img.set_pixel(x as u32, y as u32, Color::from_rgba(64, 64, 64, 255));
@@ -429,7 +435,7 @@ async fn main() {
             text_y += 20.;
 
             // if pfn == None, we are outside of RAM, because canvas is square but memory may not fill the whole canvas
-            let pfn: Option<Pfn> = snap::index_to_pfn(&iomem, index);
+            let pfn: Option<Pfn> = snap::index_to_pfn(&iomem, page_size, index);
 
             let page_size = procfs::page_size();
             let is_in_ram = pfn.map(|pfn| snap::pfn_is_in_ram(&iomem, page_size, pfn).is_some());

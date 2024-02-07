@@ -41,7 +41,7 @@ fn main() {
     for map in iomem.iter().filter(|map| map.name == "System RAM") {
         let (start, end) = map.get_range().get();
         for pfn in start.0..end.0 {
-            let index = snap::pfn_to_index(&iomem, Pfn(pfn)).unwrap();
+            let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
 
             if let Some(_idx) = snap::pfn_is_in_ram(&iomem, page_size, Pfn(pfn)) {
@@ -58,7 +58,7 @@ fn main() {
             assert_eq!(end_pfn.0 - start_pfn.0, flags.len() as u64);
 
             for (pfn, &flag) in (start_pfn.0..end_pfn.0).zip(flags.iter()) {
-                let index = snap::pfn_to_index(&iomem, Pfn(pfn)).unwrap();
+                let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
                 let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
 
                 let color_on = Rgb([0, 200, 200]);

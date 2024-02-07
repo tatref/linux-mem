@@ -27,6 +27,7 @@ fn main() {
     });
 
     let mut default_img: Option<Image> = None;
+    let page_size = 4096;
 
     'mainloop: loop {
         let chrono = Instant::now();
@@ -49,7 +50,8 @@ fn main() {
                     for (start, end, _) in &message.memory_segments {
                         //let (start, end) = map.get_range().get();
                         for pfn in start.0..end.0 {
-                            let index = snap::pfn_to_index(&message.iomem, Pfn(pfn)).unwrap();
+                            let index =
+                                snap::pfn_to_index(&message.iomem, page_size, Pfn(pfn)).unwrap();
                             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
 
                             default_img.as_mut().unwrap().set_pixel(

@@ -48,7 +48,7 @@ fn main() {
             if pfn == 0 {
                 continue;
             }
-            let index = snap::pfn_to_index(&iomem, Pfn(pfn)).unwrap();
+            let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
             //let x = index % draw_square as u64;
             //let y = index / draw_square as u64;
             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
