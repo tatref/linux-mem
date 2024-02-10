@@ -72,4 +72,6 @@ rmp-serde = "1.1.2"
 rmp = "0.8.12"
 bincode = "1.3.3"
 ciborium = "0.2.2"
+egui-macroquad = { git = "https://github.com/optozorax/egui-macroquad", default-features = false }
+#egui-macroquad = { version = "0.15.0", default-features = false }
 #once_cell = "1.17.1"
