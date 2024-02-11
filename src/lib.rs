@@ -14,14 +14,16 @@ use itertools::Itertools;
 #[cfg(unix)]
 use procfs::{
     page_size,
-    process::{MMapPath, Pfn, Process},
+    process::{MMapPath, Process},
     process::{MemoryMap, PageInfo},
-    PhysicalMemoryMap, PhysicalPageFlags, Shm, WithCurrentSystemInfo,
+    Shm, WithCurrentSystemInfo,
 };
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
-use procfs_core::{ExplicitSystemInfo, WithSystemInfo};
+use procfs_core::{
+    process::Pfn, ExplicitSystemInfo, PhysicalMemoryMap, PhysicalPageFlags, WithSystemInfo,
+};
 
 use rayon::prelude::ParallelExtend;
 use serde::{Deserialize, Serialize};
