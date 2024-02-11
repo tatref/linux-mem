@@ -376,6 +376,9 @@ mod client {
 
             let (mouse_x, mouse_y) = mouse_position();
             let (_mouse_wheel_x, mouse_wheel_y) = mouse_wheel();
+            if mouse_wheel_y != 0. {
+                dbg!(mouse_wheel_y);
+            }
 
             let mouse_screen = Vec2::new(mouse_x, mouse_y);
             //mouse_world = (mouse_screen - canvas_offset) / zoom / canvas_size
@@ -390,12 +393,12 @@ mod client {
 
             // TODO: zoom from mouse cursor
             let zoom_factor = 1.2;
-            if mouse_wheel_y == 1. {
+            if mouse_wheel_y > 0. {
                 let mouse_on_canvas = mouse_screen - canvas_offset;
                 canvas_offset = mouse_screen - mouse_on_canvas * zoom_factor;
                 zoom *= zoom_factor;
             }
-            if mouse_wheel_y == -1. {
+            if mouse_wheel_y < 0. {
                 let mouse_on_canvas = mouse_screen - canvas_offset;
                 canvas_offset = mouse_screen - mouse_on_canvas / zoom_factor;
                 zoom /= zoom_factor;
