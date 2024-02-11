@@ -14,7 +14,7 @@ pub mod messages {
         path::PathBuf,
     };
 
-    use procfs::{process::Pfn, PhysicalMemoryMap, PhysicalPageFlags};
+    use procfs_core::{process::Pfn, PhysicalMemoryMap, PhysicalPageFlags};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
@@ -101,6 +101,7 @@ pub mod messages {
     }
 }
 
+#[cfg(unix)]
 pub mod server {
     use std::collections::HashSet;
     use std::net::TcpListener;
@@ -292,7 +293,7 @@ mod client {
         b_flag: PhysicalPageFlags,
     ) -> Image {
         let mut img = default_img.clone();
-        let page_size = procfs::page_size();
+        let page_size = 4096; // TODO
 
         for (start_pfn, end_pfn, flags) in memory_segments.iter() {
             assert_eq!(end_pfn.0 - start_pfn.0, flags.len() as u64);
@@ -609,7 +610,6 @@ mod client {
                 let pfn: Option<Pfn> =
                     snap::index_to_pfn(&update.as_ref().unwrap().iomem, page_size, index);
 
-                let page_size = procfs::page_size();
                 let is_in_ram = pfn.map(|pfn| {
                     snap::pfn_is_in_ram(&update.as_ref().unwrap().iomem, page_size, pfn).is_some()
                 });
@@ -727,6 +727,7 @@ fn main() {
         }
         [_, "server", port] => {
             let port: u16 = port.parse().unwrap();
+            #[cfg(unix)]
             server::server(port);
         }
         _ => panic!("Unknown args {:?}", args),

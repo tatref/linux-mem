@@ -1,5 +1,5 @@
 #![feature(extract_if)]
-#![feature(setgroups)]
+//#![feature(setgroups)]
 #![allow(non_snake_case)]
 
 // https://biriukov.dev/docs/page-cache/4-page-cache-eviction-and-page-reclaim/
@@ -10,11 +10,21 @@
 // pahole -C task_struct /sys/kernel/btf/vmlinux
 
 use itertools::Itertools;
+
+#[cfg(unix)]
 use procfs::{
     page_size,
     process::{MMapPath, Pfn, Process},
-    PhysicalMemoryMap, PhysicalPageFlags, WithCurrentSystemInfo,
+    process::{MemoryMap, PageInfo},
+    PhysicalMemoryMap, PhysicalPageFlags, Shm, WithCurrentSystemInfo,
 };
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
+use procfs_core::{
+    process::Pfn, ExplicitSystemInfo, PhysicalMemoryMap, PhysicalPageFlags, WithSystemInfo,
+};
+
 use rayon::prelude::ParallelExtend;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -22,23 +32,22 @@ use std::{
     ffi::OsStr,
     fmt::{Debug, Display},
     hash::BuildHasherDefault,
-    os::unix::process::CommandExt,
     process::{Command, Stdio},
     str::FromStr,
 };
 
 use log::{info, warn};
-use procfs::{
-    process::{MemoryMap, PageInfo},
-    Shm,
-};
 
 use oracle::{Connector, Privilege};
 use std::ffi::OsString;
 
+#[cfg(unix)]
 pub mod filters;
+#[cfg(unix)]
 pub mod groups;
+#[cfg(unix)]
 pub mod process_tree;
+#[cfg(unix)]
 pub mod tmpfs;
 
 /// Convert pfn to index into non-contiguous memory mappings
@@ -102,7 +111,15 @@ pub fn get_pfn_count(iomem: &[PhysicalMemoryMap]) -> u64 {
     iomem
         .iter()
         .map(|map| {
-            let (start, end) = map.get_range().get();
+            //let (start, end) = map.get_range().get();
+            //(map.address.1 - map.address.0) / 4096
+            let system_info = ExplicitSystemInfo {
+                boot_time_secs: 0,
+                is_little_endian: false,
+                page_size: 4096,
+                ticks_per_second: 1000,
+            };
+            let (start, end) = map.get_range().with_system_info(&system_info);
             end.0 - start.0
         })
         .sum()
@@ -195,25 +212,9 @@ pub fn compute_compound_pages(
     counters
 }
 
-pub fn print_counters(counters: [u64; FLAG_NAMES.len() + 1]) {
-    for (name, value) in FLAG_NAMES.iter().zip(counters) {
-        let size = humansize::format_size(
-            value * procfs::page_size(),
-            humansize::BINARY.fixed_at(Some(humansize::FixedAt::Kilo)),
-        );
-        println!("{:15}: {}", name, size);
-    }
-
-    //let total_size = data.len() as u64 * procfs::page_size();
-    //let total_size = humansize::format_size(
-    //    total_size,
-    //    humansize::BINARY.fixed_at(Some(humansize::FixedAt::Kilo)),
-    //);
-    //println!("{:15}: {}", "Total", total_size);
-}
-
 /// Scan each page of shm
 /// Return None if shm uses any swap
+#[cfg(unix)]
 pub fn shm2pfns(
     all_physical_pages: &HashMap<Pfn, PhysicalPageFlags>,
     shm: &Shm,
@@ -324,6 +325,7 @@ pub fn shm2pfns(
 /// Return size of (files_struct, task_struct) from kernel
 /// ./pahole -C files_struct /sys/kernel/btf/vmlinux
 /// ./pahole -C task_struct /sys/kernel/btf/vmlinux
+#[cfg(unix)]
 pub fn get_kernel_datastructure_size(
     current_kernel: procfs::sys::kernel::Version,
 ) -> Option<(u64, u64)> {
@@ -352,6 +354,7 @@ pub fn get_kernel_datastructure_size(
 }
 
 /// If optimize_shm if true, only return first 10 pages for a shared memory mapping
+#[cfg(unix)]
 pub fn get_memory_maps_for_process(
     process: &Process,
     optimize_shm: bool,
@@ -441,6 +444,7 @@ pub fn get_db_info() -> Result<(u64, u64, u64, LargePages), Box<dyn std::error::
 
 /// Find smons processes
 /// For each, return (pid, uid, ORACLE_SID, ORACLE_HOME)
+#[cfg(unix)]
 pub fn find_smons() -> Vec<(i32, u32, OsString, OsString)> {
     let smons: Vec<Process> = procfs::process::all_processes()
         .unwrap()
@@ -489,6 +493,7 @@ pub type TheHash = metrohash::MetroHash;
 #[cfg(feature = "fxhash")]
 pub type TheHash = rustc_hash::FxHasher;
 
+#[cfg(unix)]
 pub type ShmsMetadata = HashMap<
     procfs::Shm,
     Option<(HashSet<Pfn>, HashSet<(u64, u64)>, usize, usize)>,
@@ -501,6 +506,7 @@ pub struct ShmReference {
     shmid: u64,
 }
 
+#[cfg(unix)]
 pub struct ProcessInfo {
     pub process: Process,
     pub uid: u32,
@@ -517,6 +523,7 @@ pub struct ProcessInfo {
     pub unknown_shm: HashSet<ShmReference>,
 }
 
+#[cfg(unix)]
 pub struct ProcessGroupInfo {
     pub name: String,
     pub processes_info: Vec<ProcessInfo>,
@@ -529,12 +536,14 @@ pub struct ProcessGroupInfo {
     pub fds: usize,
 }
 
+#[cfg(unix)]
 impl PartialEq for ProcessGroupInfo {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
 
+#[cfg(unix)]
 impl Debug for ProcessGroupInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProcessGroupInfo")
@@ -562,6 +571,7 @@ pub struct SmonInfo {
 }
 
 // return info memory maps info for standard process or None for kernel process
+#[cfg(unix)]
 pub fn get_process_info(
     process: Process,
     shms_metadata: &ShmsMetadata,
@@ -694,6 +704,7 @@ pub fn get_process_info(
     })
 }
 
+#[cfg(unix)]
 pub fn get_processes_group_info(
     processes_info: Vec<ProcessInfo>,
     name: &str,
@@ -733,6 +744,7 @@ pub fn get_processes_group_info(
 
 /// Spawn new process with database user
 /// return smon info
+#[cfg(unix)]
 pub fn get_smon_info(
     pid: i32,
     uid: u32,
