@@ -104,7 +104,7 @@ pub mod messages {
 #[cfg(unix)]
 pub mod server {
     use std::collections::HashSet;
-    use std::net::TcpListener;
+    use std::net::{SocketAddr, TcpListener};
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -189,10 +189,10 @@ pub mod server {
         segments
     }
 
-    pub fn server(port: u16) {
-        println!("Listening on :{:?}", port);
-        let listener = TcpListener::bind(&format!("127.0.0.1:{}", port))
-            .expect(&format!("Can't bind to port {}", port));
+    pub fn server(socket: SocketAddr) {
+        let listener =
+            TcpListener::bind(&socket).expect(&format!("Can't bind to socket {}", socket));
+        println!("Listening on :{:?}", socket);
 
         let (mut socket, _client_addr) = listener.accept().expect("Can't get client");
 
@@ -338,7 +338,8 @@ mod client {
     async fn async_client(remote: SocketAddr) {
         let page_size = 4096;
 
-        let mut socket = TcpStream::connect(remote).unwrap();
+        let mut socket =
+            TcpStream::connect_timeout(&remote, std::time::Duration::from_secs(5)).unwrap();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
 
         let socket_thread = thread::spawn(move || loop {
@@ -725,8 +726,8 @@ fn main() {
             let remote: SocketAddr = remote.parse().unwrap();
             client::client(remote);
         }
-        [_, "server", port] => {
-            let port: u16 = port.parse().unwrap();
+        [_, "server", socket] => {
+            let port: SocketAddr = socket.parse().unwrap();
             #[cfg(unix)]
             server::server(port);
         }

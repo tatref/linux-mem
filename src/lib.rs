@@ -1,5 +1,5 @@
 #![feature(extract_if)]
-//#![feature(setgroups)]
+#![cfg_attr(target_os = "linux", feature(setgroups))]
 #![allow(non_snake_case)]
 
 // https://biriukov.dev/docs/page-cache/4-page-cache-eviction-and-page-reclaim/
@@ -21,9 +21,7 @@ use procfs::{
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
-use procfs_core::{
-    process::Pfn, ExplicitSystemInfo, PhysicalMemoryMap, PhysicalPageFlags, WithSystemInfo,
-};
+use procfs_core::{ExplicitSystemInfo, WithSystemInfo};
 
 use rayon::prelude::ParallelExtend;
 use serde::{Deserialize, Serialize};
