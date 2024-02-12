@@ -60,12 +60,39 @@ Effect of memory compaction:
 ![gif](https://tatref.github.io/blog/2023-visual-linux-memory-compact/out.gif)
 
 
-## [kpageflags](src/bin/kpageflags-v2.rs)
+## [kpageflags](src/bin/kpageflags-viewer.rs)
 
-Visual map of physical memory with client/server modes
-
+Live visual map of physical memory with client/server modes
 
 ![kpageflags](assets/kpageflags.png)
+
+
+### Usage
+
+Local usage
+
+```
+sudo ./target/release/kpageflags-viewer
+```
+
+Server usage
+```
+sudo ./target/release/kpageflags-viewer server 192.168.0.1:10000
+```
+
+Client usage
+```
+./target/release/kpageflags-viewer client 192.168.0.1:10000
+```
+
+### Building
+
+Cross compiling to Windows (client only)
+```
+cargo install cross  # requires podman/docker
+cross b --release --target x86_64-pc-windows-gnu --bin kpageflags-viewer
+```
+
 
 
 # Small tools

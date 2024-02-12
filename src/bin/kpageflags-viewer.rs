@@ -2,7 +2,7 @@
 // Uses /proc/iomem and /proc/kpageflags
 //
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, process::Command, thread, time::Duration};
 
 use messages::*;
 
@@ -259,14 +259,15 @@ mod client {
         input::{is_key_pressed, mouse_position, mouse_wheel, KeyCode},
         math::Vec2,
         miniquad::FilterMode,
-        shapes::draw_rectangle,
-        text::{draw_text_ex, TextParams},
+        text::TextParams,
         texture::{draw_texture_ex, DrawTextureParams, Image, Texture2D},
         window::{clear_background, next_frame, screen_height, screen_width},
     };
     use procfs_core::{process::Pfn, PhysicalMemoryMap, PhysicalPageFlags};
 
     use crate::{Message, ProcessInfo, UpdateMessage};
+    use egui_macroquad::egui::Color32;
+    use egui_macroquad::egui::{self, RichText};
 
     fn recompute_rgb_data(
         rgb_offsets: &mut [i8; 3],
@@ -332,7 +333,7 @@ mod client {
     }
 
     pub fn client(remote: SocketAddr) {
-        macroquad::Window::new("test", async_client(remote));
+        macroquad::Window::new("kpageflags-viewer", async_client(remote));
     }
 
     async fn async_client(remote: SocketAddr) {
@@ -359,26 +360,21 @@ mod client {
         // TODO: move flags to server
         let flags_count = PhysicalPageFlags::all().iter().count();
         let mut rgb_offsets = [26i8, 12, 10]; // default view
-        let mut rgb_selector = 0;
         let mut rgb_flag_names = [String::new(), String::new(), String::new()];
 
         let mut order: Option<u8> = None;
 
         let mut mouse_world: Vec2;
         let mut update: Option<UpdateMessage> = None;
+        let mut pfn: Option<Pfn> = None;
 
         let mut changed = false;
-
-        //// Draw things after egui
 
         'mainloop: loop {
             let chrono = Instant::now();
 
             let (mouse_x, mouse_y) = mouse_position();
             let (_mouse_wheel_x, mouse_wheel_y) = mouse_wheel();
-            if mouse_wheel_y != 0. {
-                dbg!(mouse_wheel_y);
-            }
 
             let mouse_screen = Vec2::new(mouse_x, mouse_y);
             //mouse_world = (mouse_screen - canvas_offset) / zoom / canvas_size
@@ -406,36 +402,6 @@ mod client {
 
             if is_key_pressed(KeyCode::Space) {
                 autorefresh ^= true;
-            }
-
-            // TODO: move canvas with mouse
-            if is_key_pressed(KeyCode::Left) {
-                rgb_offsets[rgb_selector] -= 1;
-
-                recompute_rgb_data(
-                    &mut rgb_offsets,
-                    &mut rgb_flag_names,
-                    rgb_selector,
-                    flags_count,
-                );
-            }
-            if is_key_pressed(KeyCode::Right) {
-                rgb_offsets[rgb_selector] += 1;
-
-                recompute_rgb_data(
-                    &mut rgb_offsets,
-                    &mut rgb_flag_names,
-                    rgb_selector,
-                    flags_count,
-                );
-            }
-            if is_key_pressed(KeyCode::Up) {
-                rgb_selector -= 1;
-                rgb_selector = rgb_selector.rem_euclid(3);
-            }
-            if is_key_pressed(KeyCode::Down) {
-                rgb_selector += 1;
-                rgb_selector = rgb_selector.rem_euclid(3);
             }
 
             if let Ok(message) = rx.try_recv() {
@@ -489,6 +455,7 @@ mod client {
                     }
                     Message::Update(message) => {
                         update = Some(message);
+                        // TODO: update image in egui
                         changed = true;
                         eprintln!("Update");
                     }
@@ -527,6 +494,7 @@ mod client {
             }
 
             if img.is_none() {
+                // wait for first image
                 next_frame().await;
                 continue;
             }
@@ -547,158 +515,141 @@ mod client {
                 WHITE,
                 params,
             );
-            let elapsed = chrono.elapsed();
-            dbg!(elapsed);
-
-            let right_panel_offset = 600.;
-            // right panel
-            draw_rectangle(
-                right_panel_offset,
-                0.,
-                screen_width() - right_panel_offset,
-                screen_height(),
-                DARKGRAY,
-            );
-
-            let mut text_y = 40.;
-
-            //draw_text_ex(
-            //    &format!(
-            //        "Autorefresh: {}, Update time {:.1}ms",
-            //        autorefresh,
-            //        update_elapsed * 1000.
-            //    ),
-            //    right_panel_offset + 20.,
-            //    text_y,
-            //    TextParams::default(),
-            //);
-            //text_y += 20.;
-
-            draw_text_ex(
-                &format!("Mouse_world: {:?}", mouse_world),
-                right_panel_offset + 20.,
-                text_y,
-                TextParams::default(),
-            );
-            text_y += 20.;
-
-            // draw PFN info
-            // TODO add panel check for mouse
-            if mouse_world.x >= Vec2::ZERO.x
-                && mouse_world.y >= Vec2::ZERO.y
-                && mouse_world.x < img.as_ref().unwrap().width() as f32
-                && mouse_world.y < img.as_ref().unwrap().height() as f32
-            {
-                // mouse is over a canvas
-
-                let index = fast_hilbert::xy2h::<u64>(
-                    mouse_world.x as u64,
-                    mouse_world.y as u64,
-                    order.unwrap(),
-                ) as u64;
-
-                draw_text_ex(
-                    &format!(
-                        "index: {:?}, mouse: {:?}, zoom: {:.2}",
-                        index,
-                        (mouse_world.x as u64, mouse_world.y as u64),
-                        zoom,
-                    ),
-                    right_panel_offset + 20.,
-                    text_y,
-                    TextParams::default(),
-                );
-                text_y += 20.;
-
-                // if pfn == None, we are outside of RAM, because canvas is square but memory may not fill the whole canvas
-                let pfn: Option<Pfn> =
-                    snap::index_to_pfn(&update.as_ref().unwrap().iomem, page_size, index);
-
-                let is_in_ram = pfn.map(|pfn| {
-                    snap::pfn_is_in_ram(&update.as_ref().unwrap().iomem, page_size, pfn).is_some()
-                });
-
-                text_y += 20.;
-                draw_text_ex(
-                    &format!("pfn: {:?}, is_in_ram: {:?}", pfn, is_in_ram),
-                    right_panel_offset + 20.,
-                    text_y,
-                    TextParams::default(),
-                );
-                text_y += 20.;
-
-                if let Some(pfn) = pfn {
-                    // mouse is over canvas AND RAM
-                    let mut flags: Option<PhysicalPageFlags> = None;
-                    for (pfn_start, pfn_end, segment_flags) in
-                        &update.as_ref().unwrap().memory_segments
-                    {
-                        if pfn >= *pfn_start && pfn < *pfn_end {
-                            flags = segment_flags.get((pfn.0 - pfn_start.0) as usize).copied();
-                        }
-                    }
-
-                    let flags_text: String = if let Some(flags) = flags {
-                        flags.iter_names().map(|(flag_name, _)| flag_name).join(" ")
-                    } else {
-                        // TODO: should be unreachable somehow
-                        "NOT IN RAM?".into()
-                    };
-
-                    draw_text_ex(
-                        &format!("flags: {}", flags_text),
-                        right_panel_offset + 20.,
-                        text_y,
-                        TextParams::default(),
-                    );
-                    text_y += 20.;
-
-                    let processes: Vec<&ProcessInfo> = update
-                        .as_ref()
-                        .unwrap()
-                        .processes_info
-                        .iter()
-                        .filter_map(|proc_info| {
-                            if proc_info.pfns.contains(&pfn) {
-                                Some(proc_info)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    let processes_text = processes
-                        .iter()
-                        .map(|p| format!("{} ({:?})", p.pid, p.exe))
-                        .join(", ");
-
-                    draw_text_ex(
-                        &format!("procs: {}", processes_text),
-                        right_panel_offset + 20.,
-                        text_y,
-                        TextParams::default(),
-                    );
-                    text_y += 20.;
-                }
-            }
-
-            for (i, color) in (0..3).zip(["RED", "GREEN", "BLUE"]) {
-                let mut params = TextParams::default();
-                if i == rgb_selector {
-                    params.color = BLACK;
-                }
-
-                draw_text_ex(
-                    &format!("{}: {}", color, rgb_flag_names[i]),
-                    right_panel_offset + 20.,
-                    text_y,
-                    params,
-                );
-                text_y += 20.;
-            }
+            let _elapsed = chrono.elapsed();
 
             egui_macroquad::ui(|egui_ctx| {
-                egui_macroquad::egui::Window::new("egui ❤ macroquad").show(egui_ctx, |ui| {
+                egui_macroquad::egui::Window::new("kpageflags").show(egui_ctx, |ui| {
                     ui.label(&format!("{:?}", mouse_world));
+
+                    for ((i, &color), &color_name) in (0..3)
+                        .zip(&[Color32::RED, Color32::GREEN, Color32::BLUE])
+                        .zip(&["Red", "Green", "Blue"])
+                    {
+                        egui::ComboBox::from_label(color_name)
+                            .selected_text(
+                                RichText::new(
+                                    PhysicalPageFlags::all()
+                                        .iter_names()
+                                        .nth(rgb_offsets[i] as usize)
+                                        .map(|(name, _)| name)
+                                        .unwrap(),
+                                )
+                                .color(color),
+                            )
+                            .show_ui(ui, |ui| {
+                                ui.style_mut().wrap = Some(false);
+                                ui.set_min_width(60.0);
+
+                                for (idx, flag_name) in PhysicalPageFlags::all()
+                                    .iter_names()
+                                    .map(|(flag_name, _)| flag_name)
+                                    .enumerate()
+                                {
+                                    if ui
+                                        .selectable_value(&mut rgb_offsets[i], idx as i8, flag_name)
+                                        .changed()
+                                    {
+                                        // update image
+                                    }
+                                }
+                            });
+                        //ui.label("");
+                    }
+
+                    ui.label(&format!("pfn: {:?}", pfn.map(|pfn| pfn.0)));
+
+                    if let Some(pfn) = pfn {
+                        // mouse is over canvas AND RAM
+                        let mut flags: Option<PhysicalPageFlags> = None;
+                        for (pfn_start, pfn_end, segment_flags) in
+                            &update.as_ref().unwrap().memory_segments
+                        {
+                            if pfn >= *pfn_start && pfn < *pfn_end {
+                                flags = segment_flags.get((pfn.0 - pfn_start.0) as usize).copied();
+                            }
+                        }
+
+                        let flags_text: String = if let Some(flags) = flags {
+                            flags.iter_names().map(|(flag_name, _)| flag_name).join(" ")
+                        } else {
+                            // TODO: should be unreachable somehow
+                            "NOT IN RAM?".into()
+                        };
+                        ui.label(&format!("flags: {}", flags_text));
+
+                        let processes: Vec<&ProcessInfo> = update
+                            .as_ref()
+                            .unwrap()
+                            .processes_info
+                            .iter()
+                            .filter_map(|proc_info| {
+                                if proc_info.pfns.contains(&pfn) {
+                                    Some(proc_info)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        use egui_extras::{Column, TableBuilder};
+                        let table = TableBuilder::new(ui)
+                            .striped(true)
+                            .resizable(false)
+                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                            .column(Column::auto())
+                            .column(Column::remainder())
+                            .min_scrolled_height(0.0);
+
+                        table
+                            .header(20.0, |mut header| {
+                                header.col(|ui| {
+                                    ui.strong("PID");
+                                });
+                                header.col(|ui| {
+                                    ui.strong("exe");
+                                });
+                            })
+                            .body(|mut body| {
+                                for proc in &processes {
+                                    body.row(20.0, |mut row| {
+                                        row.col(|ui| {
+                                            ui.label(format!("{}", proc.pid));
+                                        });
+                                        row.col(|ui| {
+                                            ui.label(proc.exe.to_string_lossy());
+                                        });
+                                    });
+                                }
+                            });
+                    }
+
+                    // see https://github.com/optozorax/egui-macroquad/issues/26
+                    if mouse_world.x >= Vec2::ZERO.x
+                        && mouse_world.y >= Vec2::ZERO.y
+                        && mouse_world.x < img.as_ref().unwrap().width() as f32
+                        && mouse_world.y < img.as_ref().unwrap().height() as f32
+                        && !egui_ctx.wants_pointer_input()
+                        && !egui_ctx.is_pointer_over_area()
+                    {
+                        // mouse is over a canvas
+
+                        if macroquad::input::is_mouse_button_down(
+                            macroquad::miniquad::MouseButton::Left,
+                        ) {
+                            let index = fast_hilbert::xy2h::<u64>(
+                                mouse_world.x as u64,
+                                mouse_world.y as u64,
+                                order.unwrap(),
+                            ) as u64;
+                            pfn = snap::index_to_pfn(
+                                &update.as_ref().unwrap().iomem,
+                                page_size,
+                                index,
+                            );
+                        }
+
+                        //ui.label(&format!("index: {:?}", index));
+                    }
                 });
             });
 
@@ -707,11 +658,10 @@ mod client {
             egui_macroquad::draw();
 
             //thread::sleep(Duration::from_millis(1));
-            eprintln!("await");
             next_frame().await;
 
             let elapsed = chrono.elapsed();
-            dbg!(elapsed);
+            //dbg!(elapsed);
 
             changed = false;
         }
@@ -733,6 +683,33 @@ fn main() {
             let port: SocketAddr = socket.parse().unwrap();
             #[cfg(unix)]
             server::server(port);
+        }
+        [me] => {
+            let mut server = Command::new(&me)
+                .args(vec!["server", "127.0.0.1:10000"])
+                .spawn()
+                .expect("Can't spawn server");
+            thread::sleep(Duration::from_millis(10));
+
+            let mut client = Command::new(&me)
+                .args(vec!["client", "127.0.0.1:10000"])
+                .spawn()
+                .expect("Can't spawn client");
+
+            let mut client_exited = false;
+            let mut server_exited = false;
+            loop {
+                if let Ok(Some(_)) = server.try_wait() {
+                    server_exited = true;
+                }
+                if let Ok(Some(_)) = client.try_wait() {
+                    client_exited = true;
+                }
+                if client_exited && server_exited {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
         }
         _ => panic!("Unknown args {:?}", args),
     }
