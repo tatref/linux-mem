@@ -368,6 +368,13 @@ mod client {
         let mut update: Option<UpdateMessage> = None;
         let mut pfn: Option<Pfn> = None;
 
+        #[derive(Copy, Clone, PartialEq, Eq)]
+        enum DisplayTab {
+            Info,
+            Help,
+        }
+        let mut tab = DisplayTab::Info;
+
         let mut changed = false;
 
         'mainloop: loop {
@@ -519,136 +526,154 @@ mod client {
 
             egui_macroquad::ui(|egui_ctx| {
                 egui_macroquad::egui::Window::new("kpageflags").show(egui_ctx, |ui| {
-                    ui.label(&format!("{:?}", mouse_world));
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut tab, DisplayTab::Info, "Info");
+                        ui.selectable_value(&mut tab, DisplayTab::Help, "Help");
+                    });
 
-                    for ((i, &color), &color_name) in (0..3)
-                        .zip(&[Color32::RED, Color32::GREEN, Color32::BLUE])
-                        .zip(&["Red", "Green", "Blue"])
-                    {
-                        egui::ComboBox::from_label(color_name)
-                            .selected_text(
-                                RichText::new(
-                                    PhysicalPageFlags::all()
-                                        .iter_names()
-                                        .nth(rgb_offsets[i] as usize)
-                                        .map(|(name, _)| name)
-                                        .unwrap(),
-                                )
-                                .color(color),
-                            )
-                            .show_ui(ui, |ui| {
-                                ui.style_mut().wrap = Some(false);
-                                ui.set_min_width(60.0);
+                    match tab {
+                        DisplayTab::Info => {
+                            for ((i, &color), &color_name) in (0..3)
+                                .zip(&[Color32::RED, Color32::GREEN, Color32::BLUE])
+                                .zip(&["Red", "Green", "Blue"])
+                            {
+                                egui::ComboBox::from_label(color_name)
+                                    .selected_text(
+                                        RichText::new(
+                                            PhysicalPageFlags::all()
+                                                .iter_names()
+                                                .nth(rgb_offsets[i] as usize)
+                                                .map(|(name, _)| name)
+                                                .unwrap(),
+                                        )
+                                        .color(color),
+                                    )
+                                    .show_ui(ui, |ui| {
+                                        ui.style_mut().wrap = Some(false);
+                                        ui.set_min_width(60.0);
 
-                                for (idx, flag_name) in PhysicalPageFlags::all()
-                                    .iter_names()
-                                    .map(|(flag_name, _)| flag_name)
-                                    .enumerate()
+                                        for (idx, flag_name) in PhysicalPageFlags::all()
+                                            .iter_names()
+                                            .map(|(flag_name, _)| flag_name)
+                                            .enumerate()
+                                        {
+                                            if ui
+                                                .selectable_value(
+                                                    &mut rgb_offsets[i],
+                                                    idx as i8,
+                                                    flag_name,
+                                                )
+                                                .changed()
+                                            {
+                                                // update image
+                                            }
+                                        }
+                                    });
+                                //ui.label("");
+                            }
+
+                            ui.separator();
+
+                            ui.label(&format!("pfn: {:?}", pfn.map(|pfn| pfn.0)));
+
+                            if let Some(pfn) = pfn {
+                                // mouse is over canvas AND RAM
+                                let mut flags: Option<PhysicalPageFlags> = None;
+                                for (pfn_start, pfn_end, segment_flags) in
+                                    &update.as_ref().unwrap().memory_segments
                                 {
-                                    if ui
-                                        .selectable_value(&mut rgb_offsets[i], idx as i8, flag_name)
-                                        .changed()
-                                    {
-                                        // update image
+                                    if pfn >= *pfn_start && pfn < *pfn_end {
+                                        flags = segment_flags
+                                            .get((pfn.0 - pfn_start.0) as usize)
+                                            .copied();
                                     }
                                 }
-                            });
-                        //ui.label("");
-                    }
 
-                    ui.label(&format!("pfn: {:?}", pfn.map(|pfn| pfn.0)));
+                                let flags_text: String = if let Some(flags) = flags {
+                                    flags.iter_names().map(|(flag_name, _)| flag_name).join(" ")
+                                } else {
+                                    // TODO: should be unreachable somehow
+                                    "NOT IN RAM?".into()
+                                };
+                                ui.label(&format!("flags: {}", flags_text));
 
-                    if let Some(pfn) = pfn {
-                        // mouse is over canvas AND RAM
-                        let mut flags: Option<PhysicalPageFlags> = None;
-                        for (pfn_start, pfn_end, segment_flags) in
-                            &update.as_ref().unwrap().memory_segments
-                        {
-                            if pfn >= *pfn_start && pfn < *pfn_end {
-                                flags = segment_flags.get((pfn.0 - pfn_start.0) as usize).copied();
+                                let processes: Vec<&ProcessInfo> = update
+                                    .as_ref()
+                                    .unwrap()
+                                    .processes_info
+                                    .iter()
+                                    .filter_map(|proc_info| {
+                                        if proc_info.pfns.contains(&pfn) {
+                                            Some(proc_info)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect();
+
+                                ui.separator();
+
+                                use egui_extras::{Column, TableBuilder};
+                                let table = TableBuilder::new(ui)
+                                    .striped(true)
+                                    .resizable(false)
+                                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                                    .column(Column::auto())
+                                    .column(Column::remainder())
+                                    .min_scrolled_height(0.0);
+
+                                table
+                                    .header(20.0, |mut header| {
+                                        header.col(|ui| {
+                                            ui.strong("PID");
+                                        });
+                                        header.col(|ui| {
+                                            ui.strong("exe");
+                                        });
+                                    })
+                                    .body(|mut body| {
+                                        for proc in &processes {
+                                            body.row(20.0, |mut row| {
+                                                row.col(|ui| {
+                                                    ui.label(format!("{}", proc.pid));
+                                                });
+                                                row.col(|ui| {
+                                                    ui.label(proc.exe.to_string_lossy());
+                                                });
+                                            });
+                                        }
+                                    });
+                            }
+
+                            // see https://github.com/optozorax/egui-macroquad/issues/26
+                            if mouse_world.x >= Vec2::ZERO.x
+                                && mouse_world.y >= Vec2::ZERO.y
+                                && mouse_world.x < img.as_ref().unwrap().width() as f32
+                                && mouse_world.y < img.as_ref().unwrap().height() as f32
+                                && !egui_ctx.wants_pointer_input()
+                                && !egui_ctx.is_pointer_over_area()
+                            {
+                                // mouse is over a canvas
+
+                                if macroquad::input::is_mouse_button_down(
+                                    macroquad::miniquad::MouseButton::Left,
+                                ) {
+                                    let index = fast_hilbert::xy2h::<u64>(
+                                        mouse_world.x as u64,
+                                        mouse_world.y as u64,
+                                        order.unwrap(),
+                                    ) as u64;
+                                    pfn = snap::index_to_pfn(
+                                        &update.as_ref().unwrap().iomem,
+                                        page_size,
+                                        index,
+                                    );
+                                }
                             }
                         }
-
-                        let flags_text: String = if let Some(flags) = flags {
-                            flags.iter_names().map(|(flag_name, _)| flag_name).join(" ")
-                        } else {
-                            // TODO: should be unreachable somehow
-                            "NOT IN RAM?".into()
-                        };
-                        ui.label(&format!("flags: {}", flags_text));
-
-                        let processes: Vec<&ProcessInfo> = update
-                            .as_ref()
-                            .unwrap()
-                            .processes_info
-                            .iter()
-                            .filter_map(|proc_info| {
-                                if proc_info.pfns.contains(&pfn) {
-                                    Some(proc_info)
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-
-                        use egui_extras::{Column, TableBuilder};
-                        let table = TableBuilder::new(ui)
-                            .striped(true)
-                            .resizable(false)
-                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                            .column(Column::auto())
-                            .column(Column::remainder())
-                            .min_scrolled_height(0.0);
-
-                        table
-                            .header(20.0, |mut header| {
-                                header.col(|ui| {
-                                    ui.strong("PID");
-                                });
-                                header.col(|ui| {
-                                    ui.strong("exe");
-                                });
-                            })
-                            .body(|mut body| {
-                                for proc in &processes {
-                                    body.row(20.0, |mut row| {
-                                        row.col(|ui| {
-                                            ui.label(format!("{}", proc.pid));
-                                        });
-                                        row.col(|ui| {
-                                            ui.label(proc.exe.to_string_lossy());
-                                        });
-                                    });
-                                }
-                            });
-                    }
-
-                    // see https://github.com/optozorax/egui-macroquad/issues/26
-                    if mouse_world.x >= Vec2::ZERO.x
-                        && mouse_world.y >= Vec2::ZERO.y
-                        && mouse_world.x < img.as_ref().unwrap().width() as f32
-                        && mouse_world.y < img.as_ref().unwrap().height() as f32
-                        && !egui_ctx.wants_pointer_input()
-                        && !egui_ctx.is_pointer_over_area()
-                    {
-                        // mouse is over a canvas
-
-                        if macroquad::input::is_mouse_button_down(
-                            macroquad::miniquad::MouseButton::Left,
-                        ) {
-                            let index = fast_hilbert::xy2h::<u64>(
-                                mouse_world.x as u64,
-                                mouse_world.y as u64,
-                                order.unwrap(),
-                            ) as u64;
-                            pfn = snap::index_to_pfn(
-                                &update.as_ref().unwrap().iomem,
-                                page_size,
-                                index,
-                            );
+                        DisplayTab::Help => {
+                            ui.label("Left click to select page");
                         }
-
-                        //ui.label(&format!("index: {:?}", index));
                     }
                 });
             });
