@@ -160,15 +160,13 @@ pub const FLAG_NAMES: [&str; 27] = [
     "PGTABLE",
 ];
 
-pub fn compute_compound_pages(
-    data: &[(Pfn, u64, PhysicalPageFlags)],
-) -> [u64; FLAG_NAMES.len() + 1] {
+pub fn compute_compound_pages(data: &[PhysicalPageFlags]) -> [u64; FLAG_NAMES.len() + 1] {
     let mut counters = [0u64; FLAG_NAMES.len() + 1];
 
     #[allow(unused_variables)]
     let mut merged_compound_pages = 0;
     let mut iter = data.iter().peekable();
-    while let Some(&(_pfn, _count, flags)) = iter.next() {
+    while let Some(&flags) = iter.next() {
         if flags.contains(PhysicalPageFlags::COMPOUND_HEAD) {
             let head_flags = flags;
             //println!("0: {:?}", head_flags);
@@ -179,9 +177,9 @@ pub fn compute_compound_pages(
                 }
             }
 
-            for &(_pfn, _count, flags) in iter.take_while_ref(|(_pfn, _count, flags)| {
-                flags.contains(PhysicalPageFlags::COMPOUND_TAIL)
-            }) {
+            for &flags in
+                iter.take_while_ref(|flags| flags.contains(PhysicalPageFlags::COMPOUND_TAIL))
+            {
                 merged_compound_pages += 1;
                 let mut tail_flags = flags;
                 tail_flags.insert(head_flags & !PhysicalPageFlags::COMPOUND_HEAD);

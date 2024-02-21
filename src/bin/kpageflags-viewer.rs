@@ -28,7 +28,6 @@ pub mod messages {
     impl Message {
         pub fn send(&self, socket: &mut TcpStream) -> Result<usize, Box<dyn std::error::Error>> {
             let buf = rmp_serde::to_vec(&self)?;
-            eprintln!("message size {}", buf.len());
 
             //let buf = bincode::serialize(&self)?;
             //dbg!(buf.len());
@@ -224,8 +223,6 @@ pub mod server {
             let chrono = Instant::now();
             processes_info = get_all_processes_info();
             memory_segments = get_memory_zones_flags(&iomem, &mut kpageflags);
-            let collect_duration = chrono.elapsed();
-            dbg!(collect_duration);
 
             let message = Message::Update(UpdateMessage {
                 processes_info,
@@ -264,6 +261,7 @@ mod client {
         window::{clear_background, next_frame, screen_height, screen_width},
     };
     use procfs_core::{process::Pfn, PhysicalMemoryMap, PhysicalPageFlags};
+    use snap::compute_compound_pages;
 
     use crate::{Message, ProcessInfo, UpdateMessage};
     use egui_macroquad::egui::Color32;
@@ -372,6 +370,7 @@ mod client {
         enum DisplayTab {
             Info,
             Help,
+            Stats,
         }
         let mut tab = DisplayTab::Info;
 
@@ -412,10 +411,8 @@ mod client {
             }
 
             if let Ok(message) = rx.try_recv() {
-                eprintln!("got message");
                 match message {
                     Message::FirstUpdate(message) => {
-                        eprintln!("FirstUpdate");
                         update = Some(message.update_message);
 
                         let pfns = snap::get_pfn_count(&update.as_ref().unwrap().iomem);
@@ -464,7 +461,6 @@ mod client {
                         update = Some(message);
                         // TODO: update image in egui
                         changed = true;
-                        eprintln!("Update");
                     }
                     Message::Finish => {
                         break 'mainloop;
@@ -528,6 +524,7 @@ mod client {
                 egui_macroquad::egui::Window::new("kpageflags").show(egui_ctx, |ui| {
                     ui.horizontal(|ui| {
                         ui.selectable_value(&mut tab, DisplayTab::Info, "Info");
+                        ui.selectable_value(&mut tab, DisplayTab::Stats, "Stats");
                         ui.selectable_value(&mut tab, DisplayTab::Help, "Help");
                     });
 
@@ -673,6 +670,55 @@ mod client {
                         }
                         DisplayTab::Help => {
                             ui.label("Left click to select page");
+                        }
+                        DisplayTab::Stats => {
+                            // memory_segments[2] == normal zone
+                            let stats = compute_compound_pages(
+                                &update.as_ref().unwrap().memory_segments[2].2,
+                            );
+
+                            use egui_extras::{Column, TableBuilder};
+                            let table = TableBuilder::new(ui)
+                                .striped(true)
+                                .resizable(false)
+                                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                                .column(Column::auto())
+                                .column(Column::auto())
+                                .column(Column::remainder())
+                                .min_scrolled_height(0.0);
+
+                            table
+                                .header(20.0, |mut header| {
+                                    header.col(|ui| {
+                                        ui.strong("Flag");
+                                    });
+                                    header.col(|ui| {
+                                        ui.strong("Pages");
+                                    });
+                                    header.col(|ui| {
+                                        ui.strong("Size");
+                                    });
+                                })
+                                .body(|mut body| {
+                                    for ((name, _flag), stat) in
+                                        PhysicalPageFlags::all().iter_names().zip(&stats)
+                                    {
+                                        body.row(20.0, |mut row| {
+                                            row.col(|ui| {
+                                                ui.label(name);
+                                            });
+                                            row.col(|ui| {
+                                                ui.label(format!("{}", stat));
+                                            });
+                                            row.col(|ui| {
+                                                ui.label(format!(
+                                                    "{} MiB",
+                                                    stat * 4096 / 1024 / 1024
+                                                ));
+                                            });
+                                        });
+                                    }
+                                });
                         }
                     }
                 });
