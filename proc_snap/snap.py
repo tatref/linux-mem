@@ -48,7 +48,7 @@ PAGE_SIZE = os.sysconf('SC_PAGE_SIZE')
 
 
 
-def check_kernel() ->bool:
+def check_kernel() -> bool:
     #kernel = os.uname().release
     #kernel_version = tuple(int(x) for x in kernel.split('-')[0].split('.'))
     #print(kernel_version)
@@ -431,7 +431,10 @@ if mode == 'run':
     if os.path.exists(archive):
         logging.critical('Dump archive already exists {}'.format(archive))
         sys.exit(1)
-    os.makedirs(dump_dir)
+    os.makedirs(dump_dir, exist_ok=True)
+    if os.listdir(dump_dir):
+        logging.critical('Dump dir is not empty')
+        sys.exit(1)
     os.makedirs(dump_dir / 'proc')
 
 
