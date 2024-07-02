@@ -128,17 +128,17 @@ features :
 * `--features std`
 
 
-Require a nighly compiler
+Install nightly rust: `rustup install nightly-2024-03-10`, more recent compilers give errors...
 
 To compile for old glibc, install [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild)
 
 Via zigbuild
 ```
 arch=x86-64-v2
-RUSTFLAGS="-C target-cpu=$arch" cargo zigbuild --release --bin memstats --target x86_64-unknown-linux-gnu.2.12
+RUSTFLAGS="-C target-cpu=$arch" cargo +nightly-2024-03-10 zigbuild --release --bin memstats --target x86_64-unknown-linux-gnu.2.12
 ```
 
 Or if you don't need a portable binary
 ```
-cargo +nightly build --release --bin memstats
+cargo +nightly-2024-03-10 build --release --bin memstats
 ```
