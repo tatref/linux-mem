@@ -407,7 +407,7 @@ impl FromStr for LargePages {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
+        match s.to_uppercase().as_str() {
             "TRUE" => Ok(LargePages::True),
             "FALSE" => Ok(LargePages::False),
             "ONLY" => Ok(LargePages::Only),
