@@ -86,7 +86,7 @@ pub trait ProcessSplitter<'a> {
             }
             for (shm, meta) in shm_metadata {
                 match meta {
-                    Some((shm_pfns, _swap_pages, _pages_4k, _pages_2M)) => {
+                    Some((_shm_pfns, _swap_pages, _pages_4k, _pages_2M)) => {
                         if other_referenced_shm.contains(shm) {
                             //other_pfns.par_extend(shm_pfns);
                         }
@@ -95,10 +95,10 @@ pub trait ProcessSplitter<'a> {
                 }
             }
 
-            let mut group_1_pfns = group_1.pfns.clone();
+            let group_1_pfns = group_1.pfns.clone();
             for (shm, meta) in shm_metadata {
                 match meta {
-                    Some((shm_pfns, _swap_pages, _pages_4k, _pages_2M)) => {
+                    Some((_shm_pfns, _swap_pages, _pages_4k, _pages_2M)) => {
                         if group_1.referenced_shm.contains(shm) {
                             // TODO: we count shm as rss
                             // do something else?
@@ -216,7 +216,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterCustomFilter {
     ) {
         for (group_name, filter) in self.names.iter().zip(&self.filters) {
             let some_processes = processes
-                .extract_if(|p| filter.eval(&p.process, tree))
+                .extract_if(.., |p| filter.eval(&p.process, tree))
                 .collect();
             let process_group_info =
                 get_processes_group_info(some_processes, group_name, shms_metadata);
@@ -274,7 +274,7 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterEnvVariable {
         let mut groups: HashMap<Option<OsString>, ProcessGroupInfo> = HashMap::new();
         for sid in sids {
             let some_processes: Vec<ProcessInfo> = processes
-                .extract_if(|p| p.environ.get(&self.var) == sid.as_ref())
+                .extract_if(.., |p| p.environ.get(&self.var) == sid.as_ref())
                 .collect();
             let name = format!(
                 "{:?}",
@@ -327,7 +327,8 @@ impl<'a> ProcessSplitter<'a> for ProcessSplitterUid {
                 Some(username) => username.name().to_string_lossy().to_string(),
                 None => format!("{uid}"),
             };
-            let processes_info: Vec<ProcessInfo> = processes.extract_if(|p| p.uid == uid).collect();
+            let processes_info: Vec<ProcessInfo> =
+                processes.extract_if(.., |p| p.uid == uid).collect();
             let group_info = get_processes_group_info(processes_info, &username, shms_metadata);
             self.groups.insert(uid, group_info);
         }

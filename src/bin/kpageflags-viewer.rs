@@ -256,9 +256,8 @@ mod client {
         input::{is_key_pressed, mouse_position, mouse_wheel, KeyCode},
         math::Vec2,
         miniquad::FilterMode,
-        text::TextParams,
         texture::{draw_texture_ex, DrawTextureParams, Image, Texture2D},
-        window::{clear_background, next_frame, screen_height, screen_width},
+        window::{clear_background, next_frame},
     };
     use procfs_core::{process::Pfn, PhysicalMemoryMap, PhysicalPageFlags};
     use snap::compute_compound_pages;
@@ -353,7 +352,7 @@ mod client {
         let mut zoom = 1.;
         let mut canvas_offset = Vec2::new(0., 0.);
         let canvas_size = Vec2::new(600., 600.);
-        let mut autorefresh = true;
+        let mut _autorefresh = true;
 
         // TODO: move flags to server
         let flags_count = PhysicalPageFlags::all().iter().count();
@@ -407,7 +406,7 @@ mod client {
             }
 
             if is_key_pressed(KeyCode::Space) {
-                autorefresh ^= true;
+                _autorefresh ^= true;
             }
 
             if let Ok(message) = rx.try_recv() {
@@ -731,7 +730,7 @@ mod client {
             //thread::sleep(Duration::from_millis(1));
             next_frame().await;
 
-            let elapsed = chrono.elapsed();
+            let _elapsed = chrono.elapsed();
             //dbg!(elapsed);
 
             changed = false;

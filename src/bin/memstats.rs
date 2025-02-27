@@ -686,8 +686,8 @@ Examples:
 
             //dbg!(&more_pids_and_shm);
 
-            for (shm, pids) in more_pids_and_shm.iter_mut() {
-                for p in pids {
+            for (_shm, pids) in more_pids_and_shm.iter_mut() {
+                for _p in pids {
                     // TODO
                     //let if Ok(shm_metadata) = scan_pid_shm(p, shm) {
                     //  shm.append(shm_metadata);

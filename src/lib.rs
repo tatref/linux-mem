@@ -1,4 +1,3 @@
-#![feature(extract_if)]
 #![cfg_attr(target_os = "linux", feature(setgroups))]
 #![allow(non_snake_case)]
 
@@ -16,7 +15,7 @@ use procfs::{
     page_size,
     process::{MMapPath, Process},
     process::{MemoryMap, PageInfo},
-    Shm, WithCurrentSystemInfo,
+    Shm,
 };
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
