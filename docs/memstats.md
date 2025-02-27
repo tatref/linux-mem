@@ -128,9 +128,9 @@ features :
 * `--features std`
 
 
-Install nightly rust: `rustup install nightly-2024-03-10`, more recent compilers give errors...
+To compile for RHEL 6 (glibc 2.12), install nightly rust: `rustup install nightly-2024-03-10`, more recent compilers give errors...
 
-To compile for old glibc, install [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild)
+Install [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild)
 
 Via zigbuild
 ```
