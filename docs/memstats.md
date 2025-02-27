@@ -118,6 +118,8 @@ Custom splitter
 ### Building
 Grab a precompiled portable build in the [releases](https://github.com/tatref/linux-mem/releases)
 
+Use rust stable 1.87+, or nightly
+
 Multiple hash functions can be used. Seems that `fxhash` is the fastest
 
 features :
@@ -127,8 +129,10 @@ features :
 * `--features metrohash`
 * `--features std`
 
-
+#### RHEL 6
 To compile for RHEL 6 (glibc 2.12), install nightly rust: `rustup install nightly-2024-03-10`, more recent compilers give errors...
+
+Use commit 1f3a3b6e39a74b32dca533688af307b0512f63f9
 
 Install [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild)
 
@@ -141,4 +145,11 @@ RUSTFLAGS="-C target-cpu=$arch" cargo +nightly-2024-03-10 zigbuild --release --b
 Or if you don't need a portable binary
 ```
 cargo +nightly-2024-03-10 build --release --bin memstats
+```
+
+#### REHL 7
+Via zigbuild
+```
+arch=x86-64-v2
+RUSTFLAGS="-C target-cpu=$arch" cargo +nightly zigbuild --release --bin memstats --target x86_64-unknown-linux-gnu.2.17
 ```
