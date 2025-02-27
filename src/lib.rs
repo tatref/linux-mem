@@ -17,6 +17,7 @@ use procfs::{
     process::{MemoryMap, PageInfo},
     Shm,
 };
+use rustc_hash::FxHasher;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
@@ -475,26 +476,11 @@ pub fn find_smons() -> Vec<(i32, u32, OsString, OsString)> {
     result
 }
 
-#[cfg(feature = "std")]
-pub type TheHash = std::collections::hash_map::DefaultHasher;
-
-#[cfg(feature = "fnv")]
-pub type TheHash = fnv::FnvHasher;
-
-#[cfg(feature = "ahash")]
-pub type TheHash = ahash::AHasher;
-
-#[cfg(feature = "metrohash")]
-pub type TheHash = metrohash::MetroHash;
-
-#[cfg(feature = "fxhash")]
-pub type TheHash = rustc_hash::FxHasher;
-
 #[cfg(unix)]
 pub type ShmsMetadata = HashMap<
     procfs::Shm,
     Option<(HashSet<Pfn>, HashSet<(u64, u64)>, usize, usize)>,
-    BuildHasherDefault<TheHash>,
+    BuildHasherDefault<FxHasher>,
 >;
 
 #[derive(Hash, Eq, PartialEq, Debug, Copy, Clone)]
@@ -508,10 +494,10 @@ pub struct ProcessInfo {
     pub process: Process,
     pub uid: u32,
     pub environ: HashMap<OsString, OsString>,
-    pub pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
-    pub anon_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
-    pub swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
-    pub anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
+    pub pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>>,
+    pub anon_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>>,
+    pub swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>>,
+    pub anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>>,
     pub referenced_shms: HashSet<Shm>,
     pub rss: u64,
     pub vsz: u64,
@@ -524,10 +510,10 @@ pub struct ProcessInfo {
 pub struct ProcessGroupInfo {
     pub name: String,
     pub processes_info: Vec<ProcessInfo>,
-    pub pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
-    pub anon_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>>,
-    pub swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
-    pub anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>>,
+    pub pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>>,
+    pub anon_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>>,
+    pub swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>>,
+    pub anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>>,
     pub referenced_shm: HashSet<Shm>,
     pub pte: u64,
     pub fds: usize,
@@ -581,11 +567,11 @@ pub fn get_process_info(
     let page_size = procfs::page_size();
 
     // physical memory pages
-    let mut pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = Default::default();
-    let mut anon_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = Default::default();
+    let mut pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = Default::default();
+    let mut anon_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = Default::default();
     // swap type, offset
-    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
-    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
+    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
+    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
 
     // size of pages in memory
     let mut rss = 0;
@@ -707,10 +693,10 @@ pub fn get_processes_group_info(
     name: &str,
     _shms_metadata: &ShmsMetadata,
 ) -> ProcessGroupInfo {
-    let mut pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
-    let mut anon_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
-    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
-    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
+    let mut pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = HashSet::default();
+    let mut anon_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = HashSet::default();
+    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
+    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
     let mut referenced_shm = HashSet::new();
     let mut pte = 0;
     let mut fds = 0;

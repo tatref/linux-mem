@@ -12,7 +12,7 @@ use rayon::prelude::*;
 
 use crate::{
     filters::{self, Filter},
-    get_processes_group_info, ProcessGroupInfo, ProcessInfo, TheHash,
+    get_processes_group_info, FxHasher, ProcessGroupInfo, ProcessInfo,
 };
 use crate::{process_tree::ProcessTree, ShmsMetadata};
 
@@ -73,8 +73,8 @@ pub trait ProcessSplitter<'a> {
 
         let pb = ProgressBar::new(self.iter_groups().count() as u64);
         for group_1 in self.iter_groups() {
-            let mut other_pfns: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
-            let mut other_swap: HashSet<(u64, u64), BuildHasherDefault<TheHash>> =
+            let mut other_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = HashSet::default();
+            let mut other_swap: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> =
                 HashSet::default();
             let mut other_referenced_shm: HashSet<Shm> = HashSet::new();
             for group_other in self.iter_groups() {

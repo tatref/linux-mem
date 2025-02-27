@@ -27,10 +27,11 @@ use procfs::{
     PhysicalPageFlags, Shm,
 };
 use rayon::prelude::*;
+use rustc_hash::FxHasher;
 use snap::tmpfs::format_units_MiB;
 use snap::{
     filters, get_process_info, get_smon_info, groups, LargePages, ProcessInfo, ShmsMetadata,
-    SmonInfo, TheHash,
+    SmonInfo,
 };
 use tabled::Tabled;
 
@@ -549,8 +550,8 @@ Examples:
         let single_chrono = std::time::Instant::now();
         let hit_memory_limit = Arc::new(Mutex::new(false));
 
-        let mut mem_pages: HashSet<Pfn, BuildHasherDefault<TheHash>> = HashSet::default();
-        let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<TheHash>> = HashSet::default();
+        let mut mem_pages: HashSet<Pfn, BuildHasherDefault<FxHasher>> = HashSet::default();
+        let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
         let mut referenced_shm: HashSet<Shm> = HashSet::new();
         let mut scanned_processes = 0;
 
