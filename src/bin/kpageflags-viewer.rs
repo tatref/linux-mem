@@ -263,8 +263,8 @@ mod client {
     use snap::compute_compound_pages;
 
     use crate::{Message, ProcessInfo, UpdateMessage};
-    use egui_macroquad::egui::Color32;
     use egui_macroquad::egui::{self, RichText};
+    use egui_macroquad::egui::{Color32, TextWrapMode};
 
     fn recompute_rgb_data(
         rgb_offsets: &mut [i8; 3],
@@ -545,7 +545,7 @@ mod client {
                                         .color(color),
                                     )
                                     .show_ui(ui, |ui| {
-                                        ui.style_mut().wrap = Some(false);
+                                        ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
                                         ui.set_min_width(60.0);
 
                                         for (idx, flag_name) in PhysicalPageFlags::all()
