@@ -306,6 +306,19 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap):
             disk_usage = (file_size // block_size) + 1 * block_size
             data_size += disk_usage
 
+        os.makedirs(dest / 'fd')
+        for fd in glob.glob(proc_pid + '/fd/[0-9]*'):
+            fd = os.path.basename(fd)
+            try:
+                link_target = os.readlink(proc_pid + '/fd/' + fd)
+                if os.path.isfile(link_target):
+                    shutil.copyfile(proc_pid + '/fd/' + fd, dest / 'fd' / fd, follow_symlinks=False)
+            except Exception as e:
+                print(dump_dir)
+                print(dest)
+                print(dest / 'fd' / fd)
+                print(f"Can't copy fd {fd}: {e}")
+
         # handle links
         for proc_file in ['exe', 'root']:
             try:
@@ -533,7 +546,7 @@ if profile:
 def compress_tar_gz(dump_dir: Path):
     logging.info('Compressing archive using tar...')
     archive = dump_dir.with_suffix('.tar.gz').as_posix()
-    cmd = 'tar czf ' + archive + ' --sparse -C ' + dump_dir.parent.as_posix() + ' ' + dump_dir.name
+    cmd = 'tar -I "gzip -4" czf ' + archive + ' --sparse -C ' + dump_dir.parent.as_posix() + ' ' + dump_dir.name
     logging.debug(cmd)
     ret = subprocess.call(shlex.split(cmd))
     if ret != 0:
