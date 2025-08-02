@@ -106,6 +106,9 @@ Examples:
         )]
         filter: Option<String>,
 
+        #[arg(short, long, help = "/proc")]
+        procfs_root: Option<String>,
+
         #[arg(
             short,
             long,
@@ -425,7 +428,11 @@ Examples:
 
     // processes are scanned once and reused to get a more consistent view
     let mut kernel_processes_count = 0;
-    let all_processes: Vec<Process> = procfs::process::all_processes()
+    let procfs_root = cli
+        .procfs_root
+        .map(|s| s.to_string())
+        .unwrap_or("/proc".to_string());
+    let all_processes: Vec<Process> = procfs::process::all_processes_with_root(procfs_root)
         .unwrap()
         .filter_map(|p| match p {
             Ok(p) => Some(p),
@@ -645,7 +652,7 @@ Examples:
                 }
 
                 if proc.pid != my_process.pid {
-                    let Ok(info) = get_process_info(proc, shms_metadata) else {return None;};
+                    let info = get_process_info(proc, shms_metadata).ok()?;
                     pb.inc(1);
                     Some(info)
                 } else {
