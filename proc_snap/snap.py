@@ -546,7 +546,7 @@ if profile:
 def compress_tar_gz(dump_dir: Path):
     logging.info('Compressing archive using tar...')
     archive = dump_dir.with_suffix('.tar.gz').as_posix()
-    cmd = 'tar -I "gzip -4" czf ' + archive + ' --sparse -C ' + dump_dir.parent.as_posix() + ' ' + dump_dir.name
+    cmd = 'tar cf ' + archive + ' -I "gzip -4" --sparse -C ' + dump_dir.parent.as_posix() + ' ' + dump_dir.name
     logging.debug(cmd)
     ret = subprocess.call(shlex.split(cmd))
     if ret != 0:
