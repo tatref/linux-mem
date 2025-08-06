@@ -263,7 +263,7 @@ def dump_kpageflags(iomem):
     return data_size
         
 
-def handle_proc_pid(proc_pid, skip_shm_pagemap):
+def handle_proc_pid(proc_pid, skip_shm_pagemap, skip_fd):
     '''Dump a single pid to `dump_dir`'''
     data_size = 0
     # proc_pid = /proc/1234
@@ -305,24 +305,23 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap):
 
             disk_usage = (file_size // block_size) + 1 * block_size
             data_size += disk_usage
-
+        
         os.makedirs(dest / 'fd')
-        for fd in glob.glob(proc_pid + '/fd/[0-9]*'):
-            fd = os.path.basename(fd)
-            try:
-                link_target = os.readlink(proc_pid + '/fd/' + fd)
-                if os.path.isfile(link_target):
-                    shutil.copyfile(proc_pid + '/fd/' + fd, dest / 'fd' / fd, follow_symlinks=False)
-            except Exception as e:
-                print(dump_dir)
-                print(dest)
-                print(dest / 'fd' / fd)
-                print(f"Can't copy fd {fd}: {e}")
+        if not skip_fd:
+            for fd in glob.glob(proc_pid + '/fd/[0-9]*'):
+                fd = os.path.basename(fd)
+                try:
+                    link_target = os.readlink(proc_pid + '/fd/' + fd)
+                    if mode == 'run':
+                        if os.path.isfile(link_target) or os.path.isdir(link_target):
+                            shutil.copyfile(proc_pid + '/fd/' + fd, dest / 'fd' / fd, follow_symlinks=False)
+                except Exception as e:
+                    logging.warning(f"Can't copy fd {fd}: {e}")
 
         # handle links
-        for proc_file in ['exe', 'root']:
+        for proc_file in ['exe', 'root', 'cwd']:
             try:
-                # try to read exe (kernel procs)
+                # try to read exe (only for normal procs, not kernel)
                 os.readlink(proc_pid + '/' + proc_file)
             except:
                 continue
@@ -332,7 +331,10 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap):
         shm_refs = set()
         print('WARNING: Skipping PID ' + pid + ': ' + str(e))
         if mode == 'run':
-            shutil.rmtree(dest)
+            try:
+                shutil.rmtree(dest)
+            except:
+                pass
 
     return (shm_refs, data_size)
 
@@ -510,7 +512,7 @@ for shm in shms:
         logging.warning("Can't attach to shmid {}: {}".format(shmid, e))
 
 
-data_size += handle_proc_pid('/proc/self', skip_shm_pagemap=False)[1]
+data_size += handle_proc_pid('/proc/self', skip_shm_pagemap=False, skip_fd=True)[1]
 
 
 
@@ -525,7 +527,7 @@ else:
     n_procs = len(proc_pids)
     for proc_pid in proc_pids:
         pid = proc_pid[6:]
-        shm_refs, size = handle_proc_pid(proc_pid, skip_shm_pagemap=args.skip_shm_pagemap)
+        shm_refs, size = handle_proc_pid(proc_pid, skip_shm_pagemap=args.skip_shm_pagemap, skip_fd=False)
         data_size += size
         for key, shmid in shm_refs:
             metadata['shm'][str(key) + '-' + str(shmid)]['pids'].append(pid)
