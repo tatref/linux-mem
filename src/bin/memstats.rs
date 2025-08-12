@@ -330,7 +330,7 @@ Examples:
         let _x = snap::shm2pfns(&all_physical_pages, &shm, cli.force_read_shm).unwrap();
     }
 
-    let mut shms_metadata: ShmsMetadata = HashMap::default();
+    let mut shms_metadata: ShmsMetadata = Default::default();
     for shm in procfs::SharedMemorySegments::current()
         .expect("Can't read /dev/sysvipc/shm")
         .0
@@ -557,8 +557,8 @@ Examples:
         let single_chrono = std::time::Instant::now();
         let hit_memory_limit = Arc::new(Mutex::new(false));
 
-        let mut mem_pages: HashSet<Pfn, BuildHasherDefault<FxHasher>> = HashSet::default();
-        let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
+        let mut mem_pages: HashSet<Pfn, BuildHasherDefault<FxHasher>> = Default::default();
+        let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = Default::default();
         let mut referenced_shm: HashSet<Shm> = HashSet::new();
         let mut scanned_processes = 0;
 

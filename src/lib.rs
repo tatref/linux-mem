@@ -570,8 +570,8 @@ pub fn get_process_info(
     let mut pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = Default::default();
     let mut anon_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = Default::default();
     // swap type, offset
-    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
-    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
+    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = Default::default();
+    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = Default::default();
 
     // size of pages in memory
     let mut rss = 0;
@@ -693,10 +693,10 @@ pub fn get_processes_group_info(
     name: &str,
     _shms_metadata: &ShmsMetadata,
 ) -> ProcessGroupInfo {
-    let mut pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = HashSet::default();
-    let mut anon_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = HashSet::default();
-    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
-    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = HashSet::default();
+    let mut pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = Default::default();
+    let mut anon_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = Default::default();
+    let mut swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = Default::default();
+    let mut anon_swap_pages: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> = Default::default();
     let mut referenced_shm = HashSet::new();
     let mut pte = 0;
     let mut fds = 0;

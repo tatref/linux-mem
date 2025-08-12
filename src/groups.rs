@@ -73,9 +73,9 @@ pub trait ProcessSplitter<'a> {
 
         let pb = ProgressBar::new(self.iter_groups().count() as u64);
         for group_1 in self.iter_groups() {
-            let mut other_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = HashSet::default();
+            let mut other_pfns: HashSet<Pfn, BuildHasherDefault<FxHasher>> = Default::default();
             let mut other_swap: HashSet<(u64, u64), BuildHasherDefault<FxHasher>> =
-                HashSet::default();
+                Default::default();
             let mut other_referenced_shm: HashSet<Shm> = HashSet::new();
             for group_other in self.iter_groups() {
                 if group_1 != group_other {
