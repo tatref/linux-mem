@@ -366,7 +366,7 @@ Examples:
             sid: String,
         }
 
-        println!("Shared memory segments (MiB):");
+        println!("Sysvipc shm:");
         let mut shm_display = Vec::new();
         for shm in &shms {
             let mut sid_list = Vec::new();
