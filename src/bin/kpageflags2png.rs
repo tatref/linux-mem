@@ -17,6 +17,16 @@ fn main() {
         .filter(|map| map.name == "System RAM")
         .collect();
 
+    for map in &iomem {
+        println!(
+            "{} {:x}-{:x}: {} MiB",
+            &map.name,
+            map.address.0,
+            map.address.1,
+            (map.address.1 - map.address.0) / 1024 / 1024
+        );
+    }
+
     let mut kpageflags = procfs::KPageFlags::new().unwrap();
 
     let pfns = snap::get_pfn_count(&iomem);

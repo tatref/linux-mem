@@ -8,7 +8,7 @@ fn main() {
     let iomem: Vec<PhysicalMemoryMap> = procfs::iomem()
         .unwrap()
         .iter()
-        .filter_map(|(ident, map)| if *ident == 0 { Some(map.clone()) } else { None })
+        .filter_map(|(ident, map)| if *ident == 0 && map.name == "System RAM" { Some(map.clone()) } else { None })
         .collect();
 
     let pfns = snap::get_pfn_count(&iomem);
