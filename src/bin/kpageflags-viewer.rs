@@ -59,10 +59,14 @@ pub mod messages {
                     }
                 })
                 .next()
-                .unwrap_or(20);
+                .unwrap_or(100);
 
             if size > max_message_size * 1024 * 1024 {
-                return Err(format!("Message is too big! ({} MiB)", size / 1024 / 1024).into());
+                return Err(format!(
+                    "Message is too big! ({} MiB) (max {} MiB). Try to increase env variable MAX_MESSAGE_SIZE",
+                    size / 1024 / 1024, max_message_size
+                )
+                .into());
             }
             let mut buf: Vec<u8> = vec![0u8; size as usize];
             socket.read_exact(&mut buf)?;
@@ -737,14 +741,28 @@ mod client {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+
+    let exe = args[0];
+    let usage = format!(
+        "Usage:
+local mode (Linux only): {exe}
+server     (Linux only): {exe} server <listen socket>
+client  (Windows/Linux): {exe} client <remote client>"
+    );
+
+    // TODO: proper parsing
+    if args.contains(&"-h") || args.contains(&"--help") {
+        println!("{}", usage);
+    }
+
     match args[..] {
         [_, "client", remote] => {
             // TODO: resolve names
-            let remote: SocketAddr = remote.parse().unwrap();
+            let remote: SocketAddr = remote.parse().expect("Remote address");
             client::client(remote);
         }
         [_, "server", socket] => {
-            let port: SocketAddr = socket.parse().unwrap();
+            let port: SocketAddr = socket.parse().expect("Local socket");
             #[cfg(unix)]
             server::server(port);
         }
@@ -775,6 +793,6 @@ fn main() {
                 thread::sleep(Duration::from_millis(100));
             }
         }
-        _ => panic!("Unknown args {:?}", args),
+        _ => panic!("{}", usage),
     }
 }
