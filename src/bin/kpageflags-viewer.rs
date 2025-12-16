@@ -164,7 +164,7 @@ pub mod server {
             .collect();
         let processes_info: Vec<ProcessInfo> = all_processes
             .par_iter()
-            .filter_map(|p| get_process_info(&p).ok())
+            .filter_map(|p| get_process_info(p).ok())
             .collect();
 
         processes_info
@@ -189,8 +189,8 @@ pub mod server {
     }
 
     pub fn server(socket: SocketAddr) {
-        let listener =
-            TcpListener::bind(&socket).expect(&format!("Can't bind to socket {}", socket));
+        let listener = TcpListener::bind(socket)
+            .unwrap_or_else(&|_| panic!("Can't bind to socket {}", socket));
         println!("Listening on :{:?}", socket);
 
         let (mut socket, _client_addr) = listener.accept().expect("Can't get client");
@@ -297,9 +297,9 @@ mod client {
             assert_eq!(end_pfn.0 - start_pfn.0, flags.len() as u64);
 
             for (pfn, &flag) in (start_pfn.0..end_pfn.0).zip(flags.iter()) {
-                let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
+                let index = snap::pfn_to_index(iomem, page_size, Pfn(pfn)).unwrap();
 
-                let pfn2 = snap::index_to_pfn(&iomem, page_size, index).unwrap();
+                let pfn2 = snap::index_to_pfn(iomem, page_size, index).unwrap();
                 assert_eq!(Pfn(pfn), pfn2);
 
                 let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
@@ -454,7 +454,7 @@ mod client {
                         }
 
                         img = default_img.clone();
-                        texture = Some(Texture2D::from_image(&img.as_ref().unwrap()));
+                        texture = Some(Texture2D::from_image(img.as_ref().unwrap()));
                     }
                     Message::Update(message) => {
                         update = Some(message);
@@ -492,7 +492,7 @@ mod client {
                     g_flag,
                     b_flag,
                 ));
-                texture = Some(Texture2D::from_image(&img.as_ref().unwrap()));
+                texture = Some(Texture2D::from_image(img.as_ref().unwrap()));
             }
 
             if img.is_none() {
@@ -511,7 +511,7 @@ mod client {
                 ..Default::default()
             };
             draw_texture_ex(
-                &texture.as_ref().unwrap(),
+                texture.as_ref().unwrap(),
                 canvas_offset.x,
                 canvas_offset.y,
                 WHITE,
@@ -570,7 +570,7 @@ mod client {
 
                             ui.separator();
 
-                            ui.label(&format!("pfn: {:?}", pfn.map(|pfn| pfn.0)));
+                            ui.label(format!("pfn: {:?}", pfn.map(|pfn| pfn.0)));
 
                             if let Some(pfn) = pfn {
                                 // mouse is over canvas AND RAM
@@ -591,20 +591,14 @@ mod client {
                                     // TODO: should be unreachable somehow
                                     "NOT IN RAM?".into()
                                 };
-                                ui.label(&format!("flags: {}", flags_text));
+                                ui.label(format!("flags: {}", flags_text));
 
                                 let processes: Vec<&ProcessInfo> = update
                                     .as_ref()
                                     .unwrap()
                                     .processes_info
                                     .iter()
-                                    .filter_map(|proc_info| {
-                                        if proc_info.pfns.contains(&pfn) {
-                                            Some(proc_info)
-                                        } else {
-                                            None
-                                        }
-                                    })
+                                    .filter(|proc_info| proc_info.pfns.contains(&pfn))
                                     .collect();
 
                                 ui.separator();
@@ -755,13 +749,13 @@ fn main() {
             server::server(port);
         }
         [me] => {
-            let mut server = Command::new(&me)
+            let mut server = Command::new(me)
                 .args(vec!["server", "127.0.0.1:10000"])
                 .spawn()
                 .expect("Can't spawn server");
             thread::sleep(Duration::from_millis(10));
 
-            let mut client = Command::new(&me)
+            let mut client = Command::new(me)
                 .args(vec!["client", "127.0.0.1:10000"])
                 .spawn()
                 .expect("Can't spawn client");

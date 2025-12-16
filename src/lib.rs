@@ -762,7 +762,7 @@ pub fn get_smon_info(
     let output = child.wait_with_output()?;
 
     if !output.status.success() {
-        return Err(format!(
+        Err(format!(
             "Proces failed for DB {sid:?} {uid} {home:?}: {:?}",
             output
         ))?;

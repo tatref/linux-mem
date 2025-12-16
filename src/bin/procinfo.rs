@@ -4,7 +4,7 @@ use procfs::process::{PageInfo, Pfn, Process};
 
 fn print_info(process: &Process) -> Result<(), Box<dyn std::error::Error>> {
     if process.cmdline()?.is_empty() {
-        return Err(String::from("No info for kernel process"))?;
+        Err(String::from("No info for kernel process"))?;
     }
 
     let mut total_rss = 0;

@@ -17,7 +17,7 @@ struct Snapshot {
 impl Snapshot {
     fn load<P: AsRef<Path>>(path: P) -> Result<Self, ()> {
         fn untar(path: &Path) -> Result<(), ()> {
-            let file = File::open(&path).unwrap();
+            let file = File::open(path).unwrap();
             let tar = GzDecoder::new(file);
             let mut archive = Archive::new(tar);
             archive.unpack(".").map_err(|_| ())?;

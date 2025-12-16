@@ -1,6 +1,7 @@
+use ab_glyph::{FontRef, PxScale};
+use colorgrad::Gradient;
 use image::{ImageBuffer, Rgb, RgbImage};
 use procfs::{process::Pfn, PhysicalMemoryMap, WithCurrentSystemInfo};
-use rusttype::{Font, Scale};
 
 fn main() {
     let page_size = procfs::page_size();
@@ -8,7 +9,13 @@ fn main() {
     let iomem: Vec<PhysicalMemoryMap> = procfs::iomem()
         .unwrap()
         .iter()
-        .filter_map(|(ident, map)| if *ident == 0 && map.name == "System RAM" { Some(map.clone()) } else { None })
+        .filter_map(|(ident, map)| {
+            if *ident == 0 && map.name == "System RAM" {
+                Some(map.clone())
+            } else {
+                None
+            }
+        })
         .collect();
 
     let pfns = snap::get_pfn_count(&iomem);
@@ -23,7 +30,7 @@ fn main() {
     let mut img: RgbImage = ImageBuffer::new(draw_square + legend_offset, draw_square);
     dbg!(img.dimensions());
 
-    let grad = colorgrad::rainbow();
+    let grad = colorgrad::preset::rainbow();
 
     let empty_color = Rgb([128, 128, 128]);
     for x in 0..draw_square {
@@ -54,18 +61,20 @@ fn main() {
             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);
 
             let color = grad
-                .at(segment_index as f64 / segments_count as f64)
+                .at(segment_index as f32 / segments_count as f32)
                 .to_linear_rgba_u8();
-            let pixel = Rgb([color.0, color.1, color.2]);
+            let pixel = Rgb([color[0], color[1], color[2]]);
 
             img.put_pixel(x as u32, y as u32, pixel);
         }
     }
 
-    let font: &[u8] =
-        include_bytes!("../../fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf") as &[u8];
-    let font = Font::try_from_bytes(font).unwrap();
-    let scale = Scale::uniform(30.);
+    let font = FontRef::try_from_slice(include_bytes!(
+        "../../fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf"
+    ))
+    .unwrap();
+    //let scale = Scale::uniform(30.);
+    let scale = PxScale { x: 40., y: 40. };
 
     for (segment_index, segment) in iomem.iter().enumerate() {
         let size = snap::get_size(segment);
@@ -75,9 +84,9 @@ fn main() {
         let y = scale.x as i32 * 3 + scale.x as i32 * segment_index as i32 * 2;
 
         let grad_color = grad
-            .at(segment_index as f64 / segments_count as f64)
+            .at(segment_index as f32 / segments_count as f32)
             .to_linear_rgba_u8();
-        let color = Rgb([grad_color.0, grad_color.1, grad_color.2]);
+        let color = Rgb([grad_color[0], grad_color[1], grad_color[2]]);
 
         imageproc::drawing::draw_filled_ellipse_mut(
             &mut img,

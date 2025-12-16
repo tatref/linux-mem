@@ -110,9 +110,9 @@ fn gen_image(
         assert_eq!(end_pfn.0 - start_pfn.0, flags.len() as u64);
 
         for (pfn, &flag) in (start_pfn.0..end_pfn.0).zip(flags.iter()) {
-            let index = snap::pfn_to_index(&iomem, page_size, Pfn(pfn)).unwrap();
+            let index = snap::pfn_to_index(iomem, page_size, Pfn(pfn)).unwrap();
 
-            let pfn2 = snap::index_to_pfn(&iomem, page_size, index).unwrap();
+            let pfn2 = snap::index_to_pfn(iomem, page_size, index).unwrap();
             assert_eq!(Pfn(pfn), pfn2);
 
             let (x, y) = fast_hilbert::h2xy::<u64>(index.into(), order);

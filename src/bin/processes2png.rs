@@ -80,7 +80,7 @@ fn main() {
     dbg!(order);
 
     let mut img: RgbImage = ImageBuffer::new(2u32.pow(order as u32), 2u32.pow(order as u32));
-    let _gradient = colorgrad::rainbow();
+    let _gradient = colorgrad::preset::rainbow();
     dbg!(img.dimensions());
 
     img.fill(0);

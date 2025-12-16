@@ -51,21 +51,21 @@ pub trait ProcessSplitter<'a> {
         struct ProcessGroupDisplayRow {
             group_name: String,
             procs: usize,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             mem_rss: u64,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             mem_anon: u64,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             mem_uss: u64,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             swap_anon: u64,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             swap_rss: u64,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             swap_uss: u64,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             shm_mem: u64,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             shm_swap: u64,
         }
 

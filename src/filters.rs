@@ -110,7 +110,7 @@ pub struct EnvironKFilter {
 impl Filter for EnvironKFilter {
     fn eval(&self, p: &Process, _: &ProcessTree) -> bool {
         match p.environ() {
-            Ok(e) => e.get(&OsString::from(&self.key)).is_some(),
+            Ok(e) => e.contains_key(&OsString::from(&self.key)),
             Err(_) => false,
         }
     }

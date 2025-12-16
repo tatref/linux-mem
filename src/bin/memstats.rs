@@ -178,7 +178,7 @@ Examples:
             pga_size,
         };
         let out = serde_json::to_string(&smon_info)
-            .expect(&format!("Can't serialize SmonInfo for {sid:?}"));
+            .unwrap_or_else(|_| panic!("Can't serialize SmonInfo for {sid:?}"));
         println!("{out}");
 
         // print value, can't use logger here
@@ -288,9 +288,9 @@ Examples:
     #[derive(Tabled)]
     struct InstanceDisplayRow {
         sid: String,
-        #[tabled(display_with = "format_units_MiB")]
+        #[tabled(display = "format_units_MiB")]
         sga: u64,
-        #[tabled(display_with = "format_units_MiB")]
+        #[tabled(display = "format_units_MiB")]
         pga: u64,
         processes: u64,
         large_pages: LargePages,
@@ -312,7 +312,7 @@ Examples:
 
         let mut table = tabled::Table::new(&display_info);
         table.with(tabled::settings::Style::sharp());
-        println!("{}", table.to_string());
+        println!("{}", table);
 
         println!();
     } else {
@@ -353,13 +353,13 @@ Examples:
         struct ShmDisplayRow {
             key: i32,
             shmid: u64,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             size: u64,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             rss: u64,
             pages_4k: String,
             pages_2M: String,
-            #[tabled(display_with = "format_units_MiB")]
+            #[tabled(display = "format_units_MiB")]
             swap: u64,
             #[tabled(rename = "used %")]
             used: f32,
@@ -608,6 +608,7 @@ Examples:
             single_chrono.elapsed()
         );
         info!("");
+        info!("{} processes vanished", vanished);
         info!("Statistics:");
         info!("mem RSS: {rss}");
         info!("swap RSS: {swap}");

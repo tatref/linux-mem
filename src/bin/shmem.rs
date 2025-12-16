@@ -243,7 +243,7 @@ fn main() {
             let wait = *sub.get_one::<bool>("WAIT").unwrap();
             let advice = sub.get_one::<String>("ADVICE").unwrap();
 
-            madvise(shmid, size, &advice, wait);
+            madvise(shmid, size, advice, wait);
         }
         _ => unimplemented!(),
     }

@@ -8,13 +8,13 @@ pub struct TmpfsMetadata {
     /// noswap. https://www.kernel.org/doc/html/latest/filesystems/tmpfs.html
     pub noswap: bool,
     /// THP
-    #[tabled(display_with = "format_option_string")]
+    #[tabled(display = "format_option_string")]
     pub huge: Option<String>,
     /// FS size in Bytes
-    #[tabled(display_with = "format_units_MiB")]
+    #[tabled(display = "format_units_MiB")]
     pub fs_size: u64,
     /// Free space in Bytes
-    #[tabled(display_with = "format_units_MiB")]
+    #[tabled(display = "format_units_MiB")]
     pub fs_used: u64,
 }
 
