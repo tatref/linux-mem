@@ -736,13 +736,13 @@ pub fn get_smon_info(
 ) -> Result<SmonInfo, Box<dyn std::error::Error>> {
     let myself = std::env::current_exe()?;
 
-    let user = uzers::get_user_by_uid(uid).expect("Can't find user for uid {uid}");
+    let user = uzers::get_user_by_uid(uid).ok_or("Can't find user for uid {uid}")?;
     let gid = user.primary_group_id();
 
     let mut lib = home.to_os_string();
     lib.push("/lib");
 
-    let mut cmd = Command::new(myself);
+    let mut cmd = Command::new(&myself);
     cmd.env("LD_LIBRARY_PATH", lib)
         .env("ORACLE_SID", sid)
         .env("ORACLE_HOME", home)
@@ -756,7 +756,9 @@ pub fn get_smon_info(
         let groups: Vec<u32> = groups.iter().map(|g| g.gid()).collect();
         cmd.groups(&groups);
     }
-    let child = cmd.spawn()?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("{:?} can't exec {:?}: {:?}", user, &myself, e))?;
     let output = child.wait_with_output()?;
 
     if !output.status.success() {

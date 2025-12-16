@@ -5,7 +5,10 @@ Groups can be created by user, by environment variable, by user provided PIDs li
 Example usage:
 
 ```
-$ sudo ./memstats groups --split-uid --split-env ORACLE_SID
+# ulimit -n 20000                                              # increase open files
+# cp ./memstats /tmp/                                          # move memstats where oracle has exec permissions
+
+# /tmp/memstats groups --split-uid --split-env ORACLE_SID
 Scanning tmpfs...
 ┌────────────────┬──────────────┬────────────┐
 │ mount_point    │ fs_size      │ fs_used    │
