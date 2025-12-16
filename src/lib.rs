@@ -667,7 +667,7 @@ pub fn get_process_info(
         }
     } // end for memory_maps
 
-    let uid = process.uid()?;
+    let uid = process.status()?.euid;
     let env = process.environ()?;
 
     Ok(ProcessInfo {
