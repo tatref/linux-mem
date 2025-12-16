@@ -231,7 +231,7 @@ def dump_kpagecount(iomem):
         
 
 def dump_kpageflags(iomem):
-    ENTRY_SIZE = 8
+    ENTRY_SIZE = 8  # 64 bits per page
 
     data_size = 0
 
@@ -306,7 +306,8 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap, skip_fd):
             disk_usage = (file_size // block_size) + 1 * block_size
             data_size += disk_usage
         
-        os.makedirs(dest / 'fd')
+        if mode == 'run':
+            os.makedirs(dest / 'fd')
         if not skip_fd:
             for fd in glob.glob(proc_pid + '/fd/[0-9]*'):
                 fd = os.path.basename(fd)
@@ -329,7 +330,7 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap, skip_fd):
                 shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file, follow_symlinks=False)
     except Exception as e:
         shm_refs = set()
-        print('WARNING: Skipping PID ' + pid + ': ' + str(e))
+        logging.warning('Skipping PID ' + pid + ': ' + str(e))
         if mode == 'run':
             try:
                 shutil.rmtree(dest)
