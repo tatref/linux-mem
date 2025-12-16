@@ -22,7 +22,7 @@ LONG_VERSION="$VERSION $DATE"
 
 cargo clean
 cargo update
-RUSTFLAGS="-C target-cpu=x86-64-v2" cargo +nightly-2024-03-10 zigbuild --release --target x86_64-unknown-linux-gnu.2.12
+RUSTFLAGS="-C target-cpu=x86-64-v2" cargo +nightly zigbuild --release --target x86_64-unknown-linux-gnu.2.17
 
 cross b --release --target x86_64-pc-windows-gnu --bin kpageflags-viewer
 
