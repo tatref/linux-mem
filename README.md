@@ -32,7 +32,7 @@ Main target is Oracle databases
 
 ## [kpageflags](src/bin/kpageflags-viewer.rs)
 
-Live visual map of physical memory with client/server modes
+Live visual map of physical memory with client/server modes, flags list, processes
 
 ![kpageflags](assets/kpageflags.png)
 
@@ -47,12 +47,18 @@ sudo ./target/release/kpageflags-viewer
 
 Server usage
 ```
-sudo ./target/release/kpageflags-viewer server 192.168.0.1:10000
+sudo ./target/release/kpageflags-viewer server 0.0.0.0:10000
 ```
 
-Client usage
+Linux client usage
 ```
-./target/release/kpageflags-viewer client 192.168.0.1:10000
+$ MAX_MESSAGE_SIZE=50 ./target/release/kpageflags-viewer client 192.168.0.1:10000
+```
+
+Windows client usage
+```
+PS> $env:MAX_MESSAGE_SIZE = 50
+PS> .\kpageflags-viewer.exe client 192.168.0.1:10000
 ```
 
 ### Building
