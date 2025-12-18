@@ -37,6 +37,12 @@ from typing import List, Set, Dict, Tuple, Optional, Union, Any
 from ctypes import *
 
 
+def copy_owner(src, dest):
+    shutil.copy2(src, dest, follow_symlinks=False)
+    stat = os.stat(src, follow_symlinks=False)
+    os.chown(dest, stat.st_uid, stat.st_gid, follow_symlinks=False)
+
+
 profile = False
 if profile:
     from pstats import SortKey
@@ -116,9 +122,11 @@ def dump_pid_pagemap(pid, dest, skip_shm_pagemap=True):
     data_size = 0
 
     maps = parse_proc_pid_maps('/proc/' + pid + '/maps')
+    stat = os.stat('/proc/' + pid + '/pagemap', follow_symlinks=False)
     fi = open('/proc/' + pid + '/pagemap', 'rb')
     if mode == 'run':
         fo = open(dest / 'pagemap', 'wb')
+        os.chown(dest / 'pagemap', stat.st_uid, stat.st_gid, follow_symlinks=False)
 
     shm_refs = set()
     for entry in maps:
@@ -273,6 +281,8 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap, skip_fd):
         dest = dump_dir / 'proc/' / pid
         # we must fail if file already exists
         os.makedirs(dest)
+        stat = os.stat(proc_pid)
+        os.chown(dest, stat.st_uid, stat.st_gid, follow_symlinks=False)
     else:
         dest = None
 
@@ -297,7 +307,7 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap, skip_fd):
             ('statm', True),
             ('environ', True)]:
             if mode == 'run':
-                shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file)
+                copy_owner(proc_pid + '/' + proc_file, dest / proc_file)
                 file_size = os.stat(dest / proc_file).st_size
             else:
                 with open(proc_pid + '/' + proc_file, 'rb') as f:
@@ -308,6 +318,7 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap, skip_fd):
         
         if mode == 'run':
             os.makedirs(dest / 'fd')
+            os.chown(dest / 'fd', stat.st_uid, stat.st_gid, follow_symlinks=False)
         if not skip_fd:
             for fd in glob.glob(proc_pid + '/fd/[0-9]*'):
                 fd = os.path.basename(fd)
@@ -315,7 +326,7 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap, skip_fd):
                     link_target = os.readlink(proc_pid + '/fd/' + fd)
                     if mode == 'run':
                         if os.path.isfile(link_target) or os.path.isdir(link_target):
-                            shutil.copyfile(proc_pid + '/fd/' + fd, dest / 'fd' / fd, follow_symlinks=False)
+                            copy_owner(proc_pid + '/fd/' + fd, dest / 'fd' / fd)
                 except Exception as e:
                     logging.warning(f"Can't copy fd {fd}: {e}")
 
@@ -327,7 +338,7 @@ def handle_proc_pid(proc_pid, skip_shm_pagemap, skip_fd):
             except:
                 continue
             if mode == 'run':
-                shutil.copyfile(proc_pid + '/' + proc_file, dest / proc_file, follow_symlinks=False)
+                copy_owner(proc_pid + '/' + proc_file, dest / proc_file)
     except Exception as e:
         shm_refs = set()
         logging.warning('Skipping PID ' + pid + ': ' + str(e))
@@ -487,7 +498,8 @@ for proc_file in ['iomem', 'cmdline', 'meminfo', 'vmstat', 'buddyinfo', 'pagetyp
     try:
         if mode == 'run':
             os.makedirs((dump_dir / 'proc' / proc_file).parent, exist_ok=True)
-            shutil.copyfile('/proc' / proc_file, dump_dir / 'proc' / proc_file)
+            stat = os.stat('/proc' / proc_file)
+            copy_owner('/proc' / proc_file, dump_dir / 'proc' / proc_file)
     except Exception as e:
         logging.warning('Skipping: /proc/' + proc_file)
         logging.debug(e)
