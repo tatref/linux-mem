@@ -574,7 +574,7 @@ Examples:
                 let mut guard = hit_memory_limit.lock().unwrap();
                 if !*guard {
                     warn!(
-                        "Hit memory limit ({} MiB), try increasing limit or filtering processes",
+                        "Hit memory limit ({} MiB), try increasing limit (--mem-limit) or filtering processes (--filter)",
                         mem_limit
                     );
                     *guard = true;
@@ -646,7 +646,7 @@ Examples:
                 if my_rss > mem_limit {
                     let mut guard = hit_memory_limit.lock().unwrap();
                     if !*guard {
-                        warn!("Hit memory limit ({} MiB), try increasing limit or filtering processes", mem_limit);
+                        warn!("Hit memory limit ({} MiB), try increasing limit (--mem-limit) or filtering processes (--filter)", mem_limit);
                         *guard = true;
                     }
                     return None;
@@ -777,7 +777,7 @@ Examples:
     ) {
         if *hit_memory_limit.lock().unwrap() {
             warn!(
-                "Hit memory limit ({} MiB), try increasing limit or filtering processes",
+                "Hit memory limit ({} MiB), try increasing limit (--mem-limit) or filtering processes (--filter)",
                 mem_limit
             )
         }
